@@ -46,11 +46,12 @@ def make_turn_handler(
 
     async def handler(ctx: TurnContext) -> str:
         session_id = ctx.session_id if ctx.session_id else None
-        async with prepared.create_session(
+        session = await prepared.create_session(
             session_id=session_id,
             session_cwd=resolved_cwd,
             is_resumed=is_resumed,
-        ) as session:
+        )
+        async with session:
             return await session.execute(ctx.prompt)
 
     return handler

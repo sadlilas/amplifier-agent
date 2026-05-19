@@ -328,11 +328,13 @@ async def run(
             try:
                 result = await engine.dispatch(method, params)
             except Exception:
+                # Per JSON-RPC 2.0, generic dispatch failures map to -32603
+                # (Internal error), not -32600 (Invalid Request).
                 error = jsonrpc.make_error(
                     id=msg_id,
-                    code=-32600,
-                    message="Wire protocol violation",
-                    data={"code": "wire_protocol_violation"},
+                    code=-32603,
+                    message="Internal error",
+                    data={"code": "internal"},
                 )
                 await jsonrpc.write_message(writer, error)
                 return 1
@@ -371,12 +373,24 @@ async def run(
         # --- Any other method: pass-through dispatch ----------------------
         try:
             result = await engine.dispatch(method, params)
-        except Exception:
+        except ValueError:
+            # Engine.dispatch raises ValueError for unknown method names —
+            # that IS JSON-RPC -32601 "Method not found".
             error = jsonrpc.make_error(
                 id=msg_id,
                 code=-32601,
-                message="Wire protocol violation",
+                message="Method not found",
                 data={"code": "wire_protocol_violation"},
+            )
+            await jsonrpc.write_message(writer, error)
+            continue
+        except Exception:
+            # Any other dispatch exception is a generic internal error.
+            error = jsonrpc.make_error(
+                id=msg_id,
+                code=-32603,
+                message="Internal error",
+                data={"code": "internal"},
             )
             await jsonrpc.write_message(writer, error)
             continue

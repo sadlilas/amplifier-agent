@@ -9,7 +9,6 @@ Four async tests covering:
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,16 +24,15 @@ from amplifier_agent_lib.engine import TurnContext
 def _fake_prepared(reply: str = "stub reply") -> tuple[MagicMock, AsyncMock]:
     """Return (prepared_mock, execute_mock).
 
-    prepared_mock.create_session is an async context manager whose __aenter__
-    yields a session mock with execute = AsyncMock(return_value=reply).
+    prepared_mock.create_session is an async function that returns a session
+    mock (which is also an async context manager) with execute = AsyncMock.
     """
     execute_mock = AsyncMock(return_value=reply)
     session_mock = MagicMock()
     session_mock.execute = execute_mock
 
-    @asynccontextmanager
     async def _fake_create_session(**kwargs):
-        yield session_mock
+        return session_mock
 
     prepared_mock = MagicMock()
     prepared_mock.create_session = _fake_create_session
@@ -85,10 +83,9 @@ async def test_handler_passes_session_cwd_resolved(tmp_path) -> None:
     session_mock = MagicMock()
     session_mock.execute = execute_mock
 
-    @asynccontextmanager
     async def _capturing_create_session(**kwargs):
         captured_kwargs.update(kwargs)
-        yield session_mock
+        return session_mock
 
     prepared = MagicMock()
     prepared.create_session = _capturing_create_session
@@ -113,10 +110,9 @@ async def test_handler_empty_session_id_becomes_none() -> None:
     session_mock = MagicMock()
     session_mock.execute = execute_mock
 
-    @asynccontextmanager
     async def _capturing_create_session(**kwargs):
         captured_kwargs.update(kwargs)
-        yield session_mock
+        return session_mock
 
     prepared = MagicMock()
     prepared.create_session = _capturing_create_session
@@ -141,10 +137,9 @@ async def test_handler_passes_is_resumed() -> None:
     session_mock = MagicMock()
     session_mock.execute = execute_mock
 
-    @asynccontextmanager
     async def _capturing_create_session(**kwargs):
         captured_kwargs.update(kwargs)
-        yield session_mock
+        return session_mock
 
     prepared = MagicMock()
     prepared.create_session = _capturing_create_session

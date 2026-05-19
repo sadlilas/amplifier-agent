@@ -26,13 +26,10 @@ class _StubPrepared:
     resolver: ClassVar[Any] = None
     bundle_package_paths: ClassVar[list] = []
 
-    def create_session(self, **kwargs: Any) -> Any:
+    async def create_session(self, **kwargs: Any) -> Any:
         session = MagicMock()
         session.execute = AsyncMock(return_value="stub-reply for prompt")
-        ctx = MagicMock()
-        ctx.__aenter__ = AsyncMock(return_value=session)
-        ctx.__aexit__ = AsyncMock(return_value=None)
-        return ctx
+        return session
 
 
 def test_mode_a_run_does_not_crash_with_typeerror(monkeypatch: pytest.MonkeyPatch) -> None:

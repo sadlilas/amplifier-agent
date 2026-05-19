@@ -4,14 +4,18 @@ One JSON object per line (\\n terminated). No transport policy, no dispatch
 logic, and no knowledge of any specific method or notification name.
 
 This is the MCP-fixed pattern: malformed or non-object lines are skipped
-silently so accidental stdout pollution in a sub-tool does not crash the
-protocol bridge.
+(with a warning) so accidental stdout pollution in a sub-tool does not crash
+the protocol bridge. Skips are logged at WARNING so production callers can
+surface them to operators.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -69,9 +73,18 @@ async def read_message(reader: _Reader) -> dict | None:  # type: ignore[type-arg
             return None
         try:
             obj = json.loads(raw)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "jsonrpc.read_message: skipping non-JSON line (%s): %r",
+                exc.__class__.__name__,
+                raw[:200],
+            )
             continue
         if not isinstance(obj, dict):
+            logger.warning(
+                "jsonrpc.read_message: skipping non-object JSON value (%s)",
+                type(obj).__name__,
+            )
             continue
         return obj
 

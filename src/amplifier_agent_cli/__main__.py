@@ -7,11 +7,11 @@ This module is the entry point for the ``amplifier-agent`` command.  It owns:
   module only wires click commands to the engine.
 - Lib is mode-agnostic: no I/O is performed here beyond CLI dispatch.
 
-Registered subcommands (stubbed until their respective tasks):
-  run          — Mode A single-turn stdio JSON-RPC (Task 8)
-  doctor       — Self-diagnostics (Task 7)
-  config show  — Show current configuration (Task 6)
-  cache clear  — Clear local cache (Task 5)
+Registered subcommands:
+  run          — Mode A single-turn (run "prompt") or Mode B stdio JSON-RPC (run --stdio)
+  doctor       — Self-diagnostics
+  config show  — Show resolved configuration with source annotations
+  cache clear  — Clear the prepared-bundle XDG cache
 """
 
 from __future__ import annotations
