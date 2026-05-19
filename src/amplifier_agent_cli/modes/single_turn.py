@@ -2,26 +2,25 @@
 
 Boots the Engine, submits one prompt, prints the JSON result to stdout,
 and exits 0.  All diagnostics go to stderr only.
-
-Phase 1 note: Engine.boot in this module is called as a class-level factory
-(``Engine.boot(**kwargs)``) with keyword arguments including provider,
-approval, display, session_id, resume, fresh, cwd, bundle_override, and
-config_path.  Phase 1's Engine.boot takes a single positional ``params``
-dict and has a different interface.  This file codes to the intended Phase 2+
-interface; tests use mocks.  See commit message for details.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 import click
 
 from amplifier_agent_cli.provider_detect import ProviderNotConfigured, detect_provider
 from amplifier_agent_cli.tty_detect import is_stdin_tty
+from amplifier_agent_lib import __version__
+from amplifier_agent_lib._runtime import make_turn_handler
+from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
 from amplifier_agent_lib.engine import Engine
+from amplifier_agent_lib.protocol import PROTOCOL_VERSION, server_default_capabilities
 from amplifier_agent_lib.protocol.errors import AaaError
 from amplifier_agent_lib.protocol_points.defaults_cli import CliApprovalSystem, CliDisplaySystem
 
@@ -63,6 +62,73 @@ def _resolve_verbosity(quiet: bool, verbose: bool, debug: bool) -> str:
     if quiet:
         return "quiet"
     return "normal"
+
+
+# ---------------------------------------------------------------------------
+# _TurnSpec dataclass
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _TurnSpec:
+    """Parameters for a single-turn execution."""
+
+    prompt: str
+    session_id: str | None
+    resume: bool
+    fresh: bool
+    cwd: str | None
+    approval: CliApprovalSystem
+    display: CliDisplaySystem
+
+
+# ---------------------------------------------------------------------------
+# _execute_turn async function
+# ---------------------------------------------------------------------------
+
+
+async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
+    """Boot the Engine, submit one turn, and return the result dict."""
+    prepared = await load_and_prepare_cached(aaa_version=__version__)
+
+    if spec.fresh and spec.session_id:
+        import shutil
+
+        from amplifier_agent_lib.persistence import session_state_dir
+
+        state_dir = session_state_dir(spec.session_id)
+        if state_dir.exists():
+            shutil.rmtree(state_dir, ignore_errors=True)
+
+    handler = make_turn_handler(
+        prepared,
+        cwd=spec.cwd,
+        is_resumed=spec.resume and not spec.fresh,
+    )
+    engine = Engine(
+        turn_handler=handler,
+        protocol_points={"approval": spec.approval, "display": spec.display},
+    )
+
+    init_params: dict[str, Any] = {
+        "protocolVersion": PROTOCOL_VERSION,
+        "clientInfo": {"name": "amplifier-agent-cli", "version": __version__},
+        "capabilities": dict(server_default_capabilities()),
+        "sessionId": spec.session_id or "",
+        "resume": spec.resume,
+    }
+    await engine.boot(init_params, bundle_override=prepared)
+
+    submit_params: dict[str, Any] = {
+        "sessionId": spec.session_id or "",
+        "turnId": "turn-1",
+        "prompt": spec.prompt,
+    }
+    try:
+        result = await engine.submit_turn(submit_params)
+    finally:
+        await engine.shutdown()
+    return dict(result)
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +283,7 @@ def run(
 
     # (4) Provider detection.
     try:
-        provider = detect_provider(override=provider_override)
+        detect_provider(override=provider_override)
     except ProviderNotConfigured as exc:
         _emit_error(exc.code, exc.message)
         sys.exit(1)
@@ -229,30 +295,16 @@ def run(
         stream=sys.stderr,
     )
 
-    # (6) Boot kwargs (mapped to Phase 2+ Engine.boot interface).
-    boot_kwargs: dict[str, Any] = {
-        "provider": provider,
-        "approval": approval,
-        "display": display,
-        "session_id": session_id,
-        "resume": resume,
-        "fresh": fresh,
-        "cwd": cwd,
-        "bundle_override": bundle,
-        "config_path": config_path,
-    }
+    # (6) Build spec.
+    spec = _TurnSpec(prompt, session_id, resume, fresh, cwd, approval, display)
 
-    # (7) Boot and submit.
-    # Phase-1 note: Engine.boot is currently an async instance method with a
-    # different signature.  The CLI is coded to the intended Phase 2+ interface
-    # (Engine.boot as a classmethod-style factory).  Tests mock Engine, so the
-    # runtime mismatch does not affect test results.
+    # (7) Run with error handling.
     try:
-        engine = Engine.boot(**boot_kwargs)  # type: ignore[call-arg]
-        result = engine.submit_turn(prompt)  # type: ignore[union-attr]
+        result = asyncio.run(_execute_turn(spec))
     except AaaError as exc:
         _emit_error(exc.code, exc.message)
         sys.exit(1)
-
-    # (8) Output JSON result to stdout.
+    except Exception as exc:
+        _emit_error("internal", f"{type(exc).__name__}: {exc}")
+        sys.exit(1)
     click.echo(json.dumps(result, indent=2))
