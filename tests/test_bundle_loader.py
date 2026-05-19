@@ -26,13 +26,20 @@ async def test_load_and_prepare_returns_prepared_bundle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_prepared_bundle_declares_context_persistent() -> None:
-    """Vendored bundle.md declares context-persistent as the session context module."""
+async def test_prepared_bundle_declares_context_simple() -> None:
+    """Vendored bundle.md declares context-simple as the session context module.
+
+    Updated from context-persistent on 2026-05-19 (Thread 1 fix). context-persistent's
+    own README explicitly says 'No auto-save: Does not persist context back to files' —
+    it loads memory files at session start, it does not own transcript persistence.
+    Transcript persistence is a planned CLI-layer hook concern (see
+    docs/designs/2026-05-19-baked-in-bundle-revisit.md).
+    """
     from amplifier_agent_lib.bundle.loader import load_and_prepare_bundle
 
     prepared = await load_and_prepare_bundle(install_deps=False)
 
-    assert prepared.mount_plan["session"]["context"]["module"] == "context-persistent"
+    assert prepared.mount_plan["session"]["context"]["module"] == "context-simple"
 
 
 @pytest.mark.asyncio

@@ -19,12 +19,12 @@ session:
     source: git+https://github.com/microsoft/amplifier-module-loop-streaming@main
 
   context:
-    module: context-persistent
-    source: git+https://github.com/microsoft/amplifier-module-context-persistent@main
+    module: context-simple
+    source: git+https://github.com/microsoft/amplifier-module-context-simple@main
     config:
       max_tokens: 200000
-      # transcript_path is injected at session creation time via --session-id;
-      # it is NOT hardcoded here.
+      compact_threshold: 0.8
+      auto_compact: true
 ---
 
 # amplifier-agent Built-in Bundle
@@ -42,8 +42,13 @@ The host adapter is responsible for:
 
 - Routing incoming tool-call requests to the appropriate approval channel.
 - Streaming partial assistant turns back to the display layer.
-- Injecting the `transcript_path` into the session context at creation time based
-  on the `--session-id` flag passed to the CLI.
+
+Note: session-transcript persistence (writing `context-messages.jsonl` to
+`$XDG_STATE_HOME/amplifier-agent/sessions/<session-id>/`) is a planned
+CLI-layer hook responsibility — modeled on `amplifier-app-cli`'s
+`IncrementalSaveHook`. It is **not implemented in this build**. The context
+module in this bundle (`context-simple`) does not write transcripts; it only
+manages in-session message buffering and compaction.
 
 ## Bundle Stability
 

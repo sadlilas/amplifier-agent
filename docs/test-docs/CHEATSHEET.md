@@ -131,7 +131,7 @@ uv run amplifier-agent run --cwd /tmp "List files here"
 
 **Where stuff lives**:
 - Bundle cache: `~/.cache/amplifier-agent/prepared/<version>/`
-- Session transcripts: `~/.local/state/amplifier-agent/sessions/<session-id>/context-messages.jsonl`
+- Session transcripts: **not implemented in this build.** Planned as a CLI-layer hook (modeled on `amplifier-app-cli`'s `IncrementalSaveHook`); see `docs/designs/2026-05-19-baked-in-bundle-revisit.md`. `--session-id` is currently a logical tag only; nothing writes to `$XDG_STATE_HOME/amplifier-agent/sessions/` yet.
 
 ---
 
@@ -281,17 +281,13 @@ uv run amplifier-agent cache clear
 ## 7. Inspecting state on disk
 
 ```bash
-# Bundle cache contents
-ls -la ~/.cache/amplifier-agent/
-
-# Session transcripts
-ls -la ~/.local/state/amplifier-agent/sessions/
-
-# Read a transcript
-cat ~/.local/state/amplifier-agent/sessions/chat-1/context-messages.jsonl | head -20
+# Bundle cache contents (the prepared.pickle + manifest.json for the current version)
+ls -la ~/.cache/amplifier-agent/prepared/
 ```
 
-Each transcript is one JSON object per line — `role`, `content`, plus tool calls and metadata. The `context-persistent` module owns this format.
+**Session transcript persistence is NOT implemented in this build.** The bundle uses the `context-simple` context module, which buffers messages and handles compaction in-memory but does **not** write transcripts to disk. The cheatsheet previously described `~/.local/state/amplifier-agent/sessions/<id>/context-messages.jsonl` and claimed the `context-persistent` module owned that format — both claims were inaccurate. `context-persistent`'s README explicitly states *"No auto-save: Does not persist context back to files"*; it loads `AGENTS.md`-style memory files at session start, it doesn't write a session log.
+
+Persistent transcripts are planned as a CLI-layer hook (modeled on `amplifier-app-cli`'s `IncrementalSaveHook` + `SessionStore`). The shape of that hook — and whether transcripts should live in the bundle or in the CLI host — is part of the broader baked-in-bundle architectural revisit captured in `docs/designs/2026-05-19-baked-in-bundle-revisit.md`. Until that lands, `--session-id` is a logical tag only.
 
 ---
 
