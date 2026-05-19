@@ -26,3 +26,5 @@ uv.lock
 .vscode/
 *.swp
 .DS_Store
+.eggs/
+.pyright_cache/
