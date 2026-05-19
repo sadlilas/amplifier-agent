@@ -208,9 +208,6 @@ def run(
                 self._approval = approval
 
             async def initialize(self, *, client_capabilities: Any, client_info: Any) -> dict[str, Any]:
-                from amplifier_agent_lib._runtime import make_turn_handler
-                from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
-
                 prepared = await load_and_prepare_cached(aaa_version=__version__)
                 handler = make_turn_handler(prepared, cwd=None, is_resumed=False)
                 engine = Engine(
