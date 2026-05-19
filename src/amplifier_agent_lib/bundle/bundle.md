@@ -11,7 +11,7 @@ bundle:
 
 includes:
   - bundle: build-up-foundation
-    source: git+https://github.com/microsoft/amplifier-foundation@main
+    source: git+https://github.com/microsoft/amplifier-foundation@main#subdirectory=experiments/build-up/build-up-foundation.md
 
 session:
   orchestrator:
