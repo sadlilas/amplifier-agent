@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amplifier-agent"
+version = "0.0.1"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "amplifier-core>=1.0.0",
+    "amplifier-foundation>=1.0.0",
+    "amplifier-module-context-persistent>=1.0.0",
+    "amplifier-module-context-simple",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+]
+
+[tool.uv.sources]
+amplifier-core = { git = "https://github.com/microsoft/amplifier-core", branch = "main" }
+amplifier-foundation = { git = "https://github.com/microsoft/amplifier-foundation", branch = "main" }
+amplifier-module-context-persistent = { git = "https://github.com/microsoft/amplifier-module-context-persistent", branch = "main" }
+amplifier-module-context-simple = { git = "https://github.com/microsoft/amplifier-module-context-simple", branch = "main" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/amplifier_agent_lib"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+reportMissingImports = "warning"
