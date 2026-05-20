@@ -115,6 +115,47 @@ async def test_vendored_agents_resolve_to_wheel_local_files() -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_explorer_agent_tools_populated_after_prepare() -> None:
+    """load_and_prepare_bundle() must populate explorer's tools via load_agent_metadata().
+
+    Regression guard for the agent-tools install gap: without a call to
+    ``bundle.load_agent_metadata()`` in the cold-prepare path, the agents section
+    of the mount_plan only contains the bare-bones ``{"name": "explorer"}`` stub
+    produced by ``_parse_agents()``.  Each agent's rich frontmatter (tools,
+    providers, hooks) is invisible to ``Bundle.prepare()``, so child sessions
+    silently inherit the parent's prepared module set and never install their own
+    tool-bash / tool-filesystem / tool-search modules.
+
+    After the fix (inserting ``bundle.load_agent_metadata()`` between
+    ``load_bundle()`` and the source_path enrichment loop), explorer's agent
+    definition is fully hydrated before ``prepare()`` walks the agents section.
+    Mirrors upstream fix in
+    ``amplifier_app_cli/lib/bundle_loader/prepare.py:190``.
+    """
+    from amplifier_agent_lib.bundle.loader import load_and_prepare_bundle
+
+    prepared = await load_and_prepare_bundle(install_deps=False)
+
+    explorer_def = prepared.mount_plan.get("agents", {}).get("explorer", {})
+    tools: list = explorer_def.get("tools", [])
+
+    # load_agent_metadata() must have populated explorer's tools from frontmatter
+    assert tools, (
+        "explorer's tools list is empty — bundle.load_agent_metadata() was not "
+        "called before prepare().  Cold-prepare won't install tool-bash etc. for "
+        "child sessions; spawned explorer agents come up tool-less."
+    )
+
+    # explorer.md declares tool-bash as its first tool — it must be present
+    tool_modules = [t.get("module") for t in tools if isinstance(t, dict)]
+    assert "tool-bash" in tool_modules, (
+        f"tool-bash not found in explorer.tools: {tool_modules!r}. "
+        "Check that load_agent_metadata() runs before prepare() in "
+        "amplifier_agent_lib/bundle/loader.py."
+    )
+
+
 def test_agents_dir_resolves_in_editable_install() -> None:
     """AGENTS_DIR (used at runtime by the manifest's file:// agent refs) must contain real files.
 
