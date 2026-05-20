@@ -248,3 +248,91 @@ def test_coder_md_one_example():
     content = coder_md.read_text(encoding="utf-8")
     example_count = content.count("<example>")
     assert example_count == 1, f"coder.md must include exactly 1 <example> block, found {example_count}"
+
+
+# ---------------------------------------------------------------------------
+# tester.md tests
+# ---------------------------------------------------------------------------
+
+
+def test_tester_md_is_packaged():
+    """Verify tester.md is present as a package resource in bundle/agents/."""
+    tester_md = _agents_pkg() / "tester.md"
+    assert tester_md.is_file(), "tester.md must be a file in amplifier_agent_lib.bundle.agents package data"
+
+
+def test_tester_md_has_yaml_frontmatter():
+    """Verify tester.md starts with YAML frontmatter delimiters."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    assert content.startswith("---\n"), "tester.md must start with '---\\n' (YAML frontmatter)"
+    assert "\n---\n" in content, "tester.md must contain '\\n---\\n' to close YAML frontmatter"
+
+
+def test_tester_md_meta_name():
+    """Verify tester.md declares meta.name: tester."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    assert "name: tester" in content, "tester.md must declare meta.name: tester"
+
+
+def test_tester_md_model_role_general():
+    """Verify tester.md declares model_role: general."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    assert "model_role:" in content, "tester.md must have model_role"
+    assert "general" in content, "tester.md model_role must include 'general'"
+
+
+def test_tester_md_tools_include_required_modules():
+    """Verify tester.md lists the required five tool modules."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    for module in ("tool-bash", "tool-filesystem", "tool-search", "tool-todo", "tool-delegate"):
+        assert module in content, f"tester.md must list {module} in tools"
+
+
+def test_tester_md_tools_include_tool_delegate_with_config():
+    """Verify tester.md includes tool-delegate with exclude_tools: [tool-delegate]."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    assert "tool-delegate" in content, "tester.md must list tool-delegate in tools"
+    assert "exclude_tools" in content, "tester.md tool-delegate must have exclude_tools config"
+
+
+def test_tester_md_body_sections():
+    """Verify tester.md body contains required section headings."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    assert "# Tester" in content, "tester.md body must have '# Tester' heading"
+    assert "## Boundaries" in content, "tester.md body must have '## Boundaries' section"
+    assert "## Testing principles" in content, "tester.md body must have '## Testing principles' section"
+    assert "## Workflow" in content, "tester.md body must have '## Workflow' section"
+    assert "## Common test commands" in content, "tester.md body must have '## Common test commands' section"
+    assert "## Output contract" in content, "tester.md body must have '## Output contract' section"
+
+
+def test_tester_md_one_example():
+    """Verify tester.md includes exactly one <example> block."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    example_count = content.count("<example>")
+    assert example_count == 1, f"tester.md must include exactly 1 <example> block, found {example_count}"
+
+
+def test_tester_md_description_key_phrases():
+    """Verify tester.md description contains key phrases from spec."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    assert "test execution" in content, "tester.md description must mention 'test execution'"
+    assert "coverage" in content, "tester.md description must mention 'coverage'"
+    assert "production code" in content, "tester.md description must mention 'production code'"
+
+
+def test_tester_md_no_production_code_modification():
+    """Verify tester.md Boundaries explicitly forbids modifying production source."""
+    tester_md = _agents_pkg() / "tester.md"
+    content = tester_md.read_text(encoding="utf-8")
+    assert "Do not modify production source" in content or "not modify production" in content, (
+        "tester.md Boundaries must explicitly forbid modifying production source"
+    )
