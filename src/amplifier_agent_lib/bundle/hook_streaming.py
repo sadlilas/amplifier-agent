@@ -73,6 +73,18 @@ class StreamingEmitter:
 
     async def on_tool_post(self, event: str, data: dict[str, Any]) -> HookResult:
         """Kernel ``tool:post`` → wire ``tool/completed``."""
+        tool_name: str = data.get("tool") or data.get("tool_name") or ""
+        await self._emit(
+            {
+                "type": "tool/completed",
+                "sessionId": data.get("session_id", ""),
+                "turnId": data.get("turn_id", ""),
+                "toolCallId": data.get("tool_call_id", ""),
+                "name": tool_name,
+                "result": data.get("result"),
+                "durationMs": int(data.get("duration_ms", 0)),
+            }
+        )
         return HookResult(action="continue")
 
     async def on_tool_error(self, event: str, data: dict[str, Any]) -> HookResult:

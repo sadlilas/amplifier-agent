@@ -137,3 +137,36 @@ async def test_tool_pre_defensive_tool_name_field() -> None:
     assert ev["type"] == "tool/started"
     assert ev["name"] == "filesystem"
     assert ev["args"] == {"path": "/x"}
+
+
+# ---------------------------------------------------------------------------
+# Sub-cycle 11B: tool:post -> tool/completed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_post_emits_tool_completed() -> None:
+    """on_tool_post emits type='tool/completed' with name, toolCallId, result, durationMs."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    data = {
+        "session_id": "sess-3",
+        "turn_id": "turn-3",
+        "tool_call_id": "call-def",
+        "tool": "bash",
+        "result": {"stdout": "file.txt"},
+        "duration_ms": 42,
+    }
+    result = await emitter.on_tool_post("tool:post", data)
+
+    assert result.action == "continue"
+    assert len(coord.emitted) == 1
+    ev = coord.emitted[0]
+    assert ev["type"] == "tool/completed"
+    assert ev["sessionId"] == "sess-3"
+    assert ev["turnId"] == "turn-3"
+    assert ev["toolCallId"] == "call-def"
+    assert ev["name"] == "bash"
+    assert ev["result"] == {"stdout": "file.txt"}
+    assert ev["durationMs"] == 42
