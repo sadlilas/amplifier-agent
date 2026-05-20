@@ -56,3 +56,14 @@ async def test_load_and_prepare_accepts_override_path(tmp_path: Path) -> None:
     # Verify the correct bundle was loaded (checking the Bundle object, not mount_plan,
     # since to_mount_plan() does not include bundle metadata at the top level)
     assert prepared.bundle.name == "alt-bundle"
+
+
+def test_agents_dir_exposes_vendored_agents() -> None:
+    """AGENTS_DIR points at the bundle/agents/ directory containing the four vendored agents."""
+    from amplifier_agent_lib.bundle import AGENTS_DIR
+
+    assert AGENTS_DIR.is_dir(), f"AGENTS_DIR does not exist: {AGENTS_DIR}"
+    expected_names = {"explorer.md", "planner.md", "coder.md", "tester.md"}
+    actual_names = {p.name for p in AGENTS_DIR.iterdir() if p.suffix == ".md"}
+    missing = expected_names - actual_names
+    assert not missing, f"AGENTS_DIR missing vendored agents: {missing}"
