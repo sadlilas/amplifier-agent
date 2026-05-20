@@ -113,3 +113,22 @@ async def test_vendored_agents_resolve_to_wheel_local_files() -> None:
         assert AGENTS_DIR in resolved.parents or resolved.parent == AGENTS_DIR, (
             f"Agent {agent_name} resolved outside the vendored AGENTS_DIR: {resolved}"
         )
+
+
+def test_agents_dir_resolves_in_editable_install() -> None:
+    """AGENTS_DIR (used at runtime by the manifest's file:// agent refs) must contain real files.
+
+    Regression guard: if a future refactor accidentally moves AGENTS_DIR or the
+    agent files diverge from it, this test will catch it before the manifest fails
+    at first-run with FileNotFoundError.
+    """
+    from amplifier_agent_lib.bundle import AGENTS_DIR
+
+    expected = {"explorer.md", "planner.md", "coder.md", "tester.md"}
+    actual_files = {p.name: p for p in AGENTS_DIR.iterdir() if p.suffix == ".md"}
+
+    assert expected <= set(actual_files), f"missing: {expected - set(actual_files)}"
+    for name, path in actual_files.items():
+        if name in expected:
+            assert path.stat().st_size > 100, f"{name} is suspiciously small ({path.stat().st_size} bytes)"
+            assert path.read_text().startswith("---\n"), f"{name} missing YAML frontmatter"
