@@ -81,6 +81,19 @@ def test_display_event_type_discriminator() -> None:
     assert event_with_turn["turnId"] == "turn-42"
 
 
+def test_approval_system_request_signature_is_async_single_arg() -> None:
+    """ApprovalSystem.request must be async with a single non-self parameter named 'req'."""
+    import inspect
+
+    from amplifier_agent_lib.protocol_points.base import ApprovalSystem
+
+    assert inspect.iscoroutinefunction(ApprovalSystem.request)
+    sig = inspect.signature(ApprovalSystem.request)
+    params = [p for p in sig.parameters.values() if p.name != "self"]
+    assert len(params) == 1
+    assert params[0].name == "req"
+
+
 def test_no_spawn_protocol_exported() -> None:
     """SpawnSystem, Spawn, and SpawnProtocol must NOT appear in protocol_points.base."""
     import amplifier_agent_lib.protocol_points.base as _base
