@@ -93,14 +93,43 @@ class StreamingEmitter:
 
     async def on_content_block_start(self, event: str, data: dict[str, Any]) -> HookResult:
         """Kernel ``content_block:start`` — initialise per-block state."""
+        block_id: str = data.get("block_id", "") or str(data.get("index", ""))
+        self._delta_seen[block_id] = False
+        self._block_text[block_id] = ""
         return HookResult(action="continue")
 
     async def on_content_block_delta(self, event: str, data: dict[str, Any]) -> HookResult:
         """Kernel ``content_block:delta`` → wire ``result/delta``."""
+        block_id: str = data.get("block_id", "") or str(data.get("index", ""))
+        self._delta_seen[block_id] = True
+        text: str = data.get("text", "")
+        await self._emit(
+            {
+                "type": "result/delta",
+                "sessionId": data.get("session_id", ""),
+                "turnId": data.get("turn_id", ""),
+                "text": text,
+            }
+        )
         return HookResult(action="continue")
 
     async def on_content_block_end(self, event: str, data: dict[str, Any]) -> HookResult:
         """Kernel ``content_block:end`` — emit fallback delta if none fired; cleanup state."""
+        block_id: str = data.get("block_id", "") or str(data.get("index", ""))
+        if not self._delta_seen.get(block_id, False):
+            text: str = data.get("text", "")
+            if text:
+                await self._emit(
+                    {
+                        "type": "result/delta",
+                        "sessionId": data.get("session_id", ""),
+                        "turnId": data.get("turn_id", ""),
+                        "text": text,
+                    }
+                )
+        # Cleanup block state
+        self._delta_seen.pop(block_id, None)
+        self._block_text.pop(block_id, None)
         return HookResult(action="continue")
 
     async def on_llm_response(self, event: str, data: dict[str, Any]) -> HookResult:

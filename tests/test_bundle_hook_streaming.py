@@ -170,3 +170,104 @@ async def test_tool_post_emits_tool_completed() -> None:
     assert ev["name"] == "bash"
     assert ev["result"] == {"stdout": "file.txt"}
     assert ev["durationMs"] == 42
+
+
+# ---------------------------------------------------------------------------
+# Sub-cycle 11C: content_block handlers (result/delta + fallback)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_content_block_delta_emits_result_delta() -> None:
+    """on_start then on_delta with text='Hello' emits one result/delta with text='Hello'."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    block_data = {
+        "session_id": "sess-4",
+        "turn_id": "turn-4",
+        "block_id": "block-1",
+    }
+    await emitter.on_content_block_start("content_block:start", block_data)
+    assert len(coord.emitted) == 0  # start emits nothing
+
+    delta_data = {
+        "session_id": "sess-4",
+        "turn_id": "turn-4",
+        "block_id": "block-1",
+        "text": "Hello",
+    }
+    result = await emitter.on_content_block_delta("content_block:delta", delta_data)
+
+    assert result.action == "continue"
+    assert len(coord.emitted) == 1
+    ev = coord.emitted[0]
+    assert ev["type"] == "result/delta"
+    assert ev["sessionId"] == "sess-4"
+    assert ev["turnId"] == "turn-4"
+    assert ev["text"] == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_content_block_end_fallback_when_no_delta_fired() -> None:
+    """on_start then on_end with text='Full text' (no delta) emits exactly one fallback result/delta."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    start_data = {
+        "session_id": "sess-5",
+        "turn_id": "turn-5",
+        "block_id": "block-2",
+    }
+    await emitter.on_content_block_start("content_block:start", start_data)
+
+    end_data = {
+        "session_id": "sess-5",
+        "turn_id": "turn-5",
+        "block_id": "block-2",
+        "text": "Full text",
+    }
+    result = await emitter.on_content_block_end("content_block:end", end_data)
+
+    assert result.action == "continue"
+    assert len(coord.emitted) == 1
+    ev = coord.emitted[0]
+    assert ev["type"] == "result/delta"
+    assert ev["text"] == "Full text"
+
+
+@pytest.mark.asyncio
+async def test_content_block_end_skips_fallback_when_delta_fired() -> None:
+    """start, delta('chunk-1'), end emits only the real delta (no fallback on end)."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    block_id = "block-3"
+    base = {"session_id": "sess-6", "turn_id": "turn-6", "block_id": block_id}
+
+    await emitter.on_content_block_start("content_block:start", base)
+    await emitter.on_content_block_delta("content_block:delta", {**base, "text": "chunk-1"})
+
+    emitted_before = list(coord.emitted)
+    await emitter.on_content_block_end("content_block:end", {**base, "text": "chunk-1"})
+
+    # No extra emission from on_end
+    assert len(coord.emitted) == len(emitted_before)
+
+
+@pytest.mark.asyncio
+async def test_content_block_end_cleans_up_state() -> None:
+    """on_end cleans up _delta_seen and _block_text for the block."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    block_id = "block-cleanup"
+    base = {"session_id": "s", "turn_id": "t", "block_id": block_id}
+
+    await emitter.on_content_block_start("content_block:start", base)
+    assert block_id in emitter._delta_seen
+
+    await emitter.on_content_block_end("content_block:end", {**base, "text": ""})
+
+    assert block_id not in emitter._delta_seen
+    assert block_id not in emitter._block_text
