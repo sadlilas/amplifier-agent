@@ -45,6 +45,10 @@ def clear_cache() -> ClearResult:
         removed and whether it existed before removal.
     """
     root = cache_dir_for_version("_").parent.parent
+    assert root.name == "prepared", (
+        f"cache root has unexpected name {root.name!r}; expected 'prepared'. "
+        "cache_dir_for_version() layout may have changed — audit clear_cache()."
+    )
     existed = root.exists()
     if existed:
         shutil.rmtree(root)
