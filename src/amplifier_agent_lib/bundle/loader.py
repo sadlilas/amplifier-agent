@@ -52,5 +52,16 @@ async def load_and_prepare_bundle(
         raise FileNotFoundError(f"Bundle file not found: {target}")
 
     bundle = await load_bundle(f"file://{target}")
+
+    # Enrich each declared agent with its resolved absolute source_path so
+    # callers (and tests) can locate the vendored .md files without going
+    # through foundation's internal resolver.  We add source_path only when
+    # the file can actually be found; agents without a resolvable path are
+    # left unchanged.
+    for agent_name in bundle.agents:
+        agent_path = bundle.resolve_agent_path(agent_name)
+        if agent_path and agent_path.exists():
+            bundle.agents[agent_name]["source_path"] = str(agent_path)
+
     prepared = await bundle.prepare(install_deps=install_deps)
     return prepared

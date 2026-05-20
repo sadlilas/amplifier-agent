@@ -36,7 +36,12 @@ tools:
 
 hooks: []
 
-agents: {}
+agents:
+  include:
+    - explorer
+    - planner
+    - coder
+    - tester
 ---
 
 # amplifier-agent Built-in Bundle (Vendored Opinionated Manifest)
