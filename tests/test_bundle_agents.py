@@ -160,9 +160,7 @@ def test_planner_md_two_examples():
     planner_md = _agents_pkg() / "planner.md"
     content = planner_md.read_text(encoding="utf-8")
     example_count = content.count("<example>")
-    assert example_count >= 2, (
-        f"planner.md must include at least 2 <example> blocks, found {example_count}"
-    )
+    assert example_count >= 2, f"planner.md must include at least 2 <example> blocks, found {example_count}"
 
 
 def test_planner_md_handoff_rule_coder():
@@ -170,3 +168,83 @@ def test_planner_md_handoff_rule_coder():
     planner_md = _agents_pkg() / "planner.md"
     content = planner_md.read_text(encoding="utf-8")
     assert "coder" in content, "planner.md handoff rule must reference 'coder' agent"
+
+
+# ---------------------------------------------------------------------------
+# coder.md tests
+# ---------------------------------------------------------------------------
+
+
+def test_coder_md_is_packaged():
+    """Verify coder.md is present as a package resource in bundle/agents/."""
+    coder_md = _agents_pkg() / "coder.md"
+    assert coder_md.is_file(), "coder.md must be a file in amplifier_agent_lib.bundle.agents package data"
+
+
+def test_coder_md_has_yaml_frontmatter():
+    """Verify coder.md starts with YAML frontmatter delimiters."""
+    coder_md = _agents_pkg() / "coder.md"
+    content = coder_md.read_text(encoding="utf-8")
+    assert content.startswith("---\n"), "coder.md must start with '---\\n' (YAML frontmatter)"
+    assert "\n---\n" in content, "coder.md must contain '\\n---\\n' to close YAML frontmatter"
+
+
+def test_coder_md_meta_name():
+    """Verify coder.md declares meta.name: coder."""
+    coder_md = _agents_pkg() / "coder.md"
+    content = coder_md.read_text(encoding="utf-8")
+    assert "name: coder" in content, "coder.md must declare meta.name: coder"
+
+
+def test_coder_md_model_role():
+    """Verify coder.md declares model_role with coding and general."""
+    coder_md = _agents_pkg() / "coder.md"
+    content = coder_md.read_text(encoding="utf-8")
+    assert "model_role:" in content, "coder.md must have model_role"
+    assert "coding" in content, "coder.md model_role must include 'coding'"
+    assert "general" in content, "coder.md model_role must include 'general'"
+
+
+def test_coder_md_tools_include_required_modules():
+    """Verify coder.md lists the required five tool modules."""
+    coder_md = _agents_pkg() / "coder.md"
+    content = coder_md.read_text(encoding="utf-8")
+    for module in ("tool-bash", "tool-filesystem", "tool-search", "tool-todo", "tool-delegate"):
+        assert module in content, f"coder.md must list {module} in tools"
+
+
+def test_coder_md_tools_include_tool_delegate_with_config():
+    """Verify coder.md includes tool-delegate with exclude_tools: [tool-delegate]."""
+    coder_md = _agents_pkg() / "coder.md"
+    content = coder_md.read_text(encoding="utf-8")
+    assert "tool-delegate" in content, "coder.md must list tool-delegate in tools"
+    assert "exclude_tools" in content, "coder.md tool-delegate must have exclude_tools config"
+
+
+def test_coder_md_body_sections():
+    """Verify coder.md body contains required section headings."""
+    coder_md = _agents_pkg() / "coder.md"
+    content = coder_md.read_text(encoding="utf-8")
+    assert "# Coder" in content, "coder.md body must have '# Coder' heading"
+    assert "## Required inputs" in content, "coder.md body must have '## Required inputs' section"
+    assert "## Implementation loop" in content, "coder.md body must have '## Implementation loop' section"
+    assert "## Discipline" in content, "coder.md body must have '## Discipline' section"
+    assert "## Forbidden" in content, "coder.md body must have '## Forbidden' section"
+    assert "## Output contract" in content, "coder.md body must have '## Output contract' section"
+
+
+def test_coder_md_refusal_protocol():
+    """Verify coder.md contains the refusal protocol for under-specified work."""
+    coder_md = _agents_pkg() / "coder.md"
+    content = coder_md.read_text(encoding="utf-8")
+    assert "Specification incomplete" in content, (
+        "coder.md must contain 'Specification incomplete' refusal protocol text"
+    )
+
+
+def test_coder_md_one_example():
+    """Verify coder.md includes exactly one <example> block."""
+    coder_md = _agents_pkg() / "coder.md"
+    content = coder_md.read_text(encoding="utf-8")
+    example_count = content.count("<example>")
+    assert example_count == 1, f"coder.md must include exactly 1 <example> block, found {example_count}"
