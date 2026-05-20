@@ -41,8 +41,6 @@ from amplifier_agent_lib.protocol.methods import (
     SessionEndParams,
     SessionEndResult,
     SessionState,
-    TurnCancelParams,
-    TurnCancelResult,
     TurnSubmitParams,
     TurnSubmitResult,
 )
@@ -97,8 +95,6 @@ __all__ = [
     "ThinkingFinalNotification",
     "ToolCompletedNotification",
     "ToolStartedNotification",
-    "TurnCancelParams",
-    "TurnCancelResult",
     "TurnSubmitParams",
     "TurnSubmitResult",
     "UsageNotification",

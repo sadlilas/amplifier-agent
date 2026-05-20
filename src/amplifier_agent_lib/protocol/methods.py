@@ -81,24 +81,6 @@ class TurnSubmitResult(TypedDict):
 
 
 # ---------------------------------------------------------------------------
-# turn/cancel
-# ---------------------------------------------------------------------------
-
-
-class TurnCancelParams(TypedDict):
-    """Parameters for the ``turn/cancel`` JSON-RPC method."""
-
-    sessionId: str
-    turnId: str
-
-
-class TurnCancelResult(TypedDict):
-    """Result returned by the ``turn/cancel`` JSON-RPC method."""
-
-    cancelled: bool
-
-
-# ---------------------------------------------------------------------------
 # session/create
 # ---------------------------------------------------------------------------
 

@@ -171,3 +171,15 @@ def test_session_state_resumed_field() -> None:
 
     assert json.loads(json.dumps(state_new))["resumed"] is False
     assert json.loads(json.dumps(state_resumed))["resumed"] is True
+
+
+def test_turn_cancel_typeddicts_removed() -> None:
+    """TurnCancelParams and TurnCancelResult must not exist in protocol/methods.py (design D3)."""
+    from amplifier_agent_lib.protocol import methods as _methods
+
+    forbidden = ("TurnCancelParams", "TurnCancelResult")
+    module_names = dir(_methods)
+    for name in forbidden:
+        assert name not in module_names, (
+            f"{name!r} must be removed from protocol/methods.py (design D3)"
+        )
