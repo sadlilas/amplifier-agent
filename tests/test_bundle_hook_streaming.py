@@ -18,7 +18,6 @@ from amplifier_agent_lib.bundle.hook_streaming import (
     mount,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test infrastructure — mock coordinator
 # ---------------------------------------------------------------------------
@@ -43,8 +42,10 @@ class _MockCoordinator:
 
     def get_capability(self, name: str) -> object:
         if name == "display.emit":
+
             async def _emit(event: dict) -> None:
                 self.emitted.append(event)
+
             return _emit
         raise KeyError(f"Unknown capability: {name!r}")
 

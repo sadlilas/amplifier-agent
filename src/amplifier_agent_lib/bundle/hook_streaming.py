@@ -172,7 +172,7 @@ class StreamingEmitter:
         return HookResult(action="continue")
 
 
-async def mount(coordinator: Any, config: Any = None) -> None:  # noqa: ARG001
+async def mount(coordinator: Any, config: Any = None) -> None:
     """Mount the streaming hook on the coordinator.
 
     Instantiates a :class:`StreamingEmitter` and registers 7 handlers on
