@@ -89,6 +89,16 @@ class StreamingEmitter:
 
     async def on_tool_error(self, event: str, data: dict[str, Any]) -> HookResult:
         """Kernel ``tool:error`` → wire ``error``."""
+        await self._emit(
+            {
+                "type": "error",
+                "sessionId": data.get("session_id", ""),
+                "turnId": data.get("turn_id", ""),
+                "code": data.get("error_code", "tool_failed") or "tool_failed",
+                "message": data.get("error_message", ""),
+                "recoverable": True,
+            }
+        )
         return HookResult(action="continue")
 
     async def on_content_block_start(self, event: str, data: dict[str, Any]) -> HookResult:

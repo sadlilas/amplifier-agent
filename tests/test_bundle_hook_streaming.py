@@ -344,3 +344,51 @@ async def test_llm_response_no_final_when_no_text() -> None:
     emitted_types = [ev["type"] for ev in coord.emitted]
     assert "usage" in emitted_types
     assert "result/final" not in emitted_types
+
+
+# ---------------------------------------------------------------------------
+# Sub-cycle 11E: tool:error -> error
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_error_emits_error_event() -> None:
+    """on_tool_error emits type='error' with code, message, recoverable=True."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    data = {
+        "session_id": "sess-10",
+        "turn_id": "turn-10",
+        "tool": "bash",
+        "error_code": "tool_failed",
+        "error_message": "exit code 1",
+    }
+    result = await emitter.on_tool_error("tool:error", data)
+
+    assert result.action == "continue"
+    assert len(coord.emitted) == 1
+    ev = coord.emitted[0]
+    assert ev["type"] == "error"
+    assert ev["sessionId"] == "sess-10"
+    assert ev["turnId"] == "turn-10"
+    assert ev["code"] == "tool_failed"
+    assert ev["message"] == "exit code 1"
+    assert ev["recoverable"] is True
+
+
+@pytest.mark.asyncio
+async def test_tool_error_defaults_code_to_tool_failed() -> None:
+    """on_tool_error falls back to 'tool_failed' when error_code is absent."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    data = {
+        "session_id": "s",
+        "turn_id": "t",
+        "error_message": "something broke",
+    }
+    await emitter.on_tool_error("tool:error", data)
+
+    assert len(coord.emitted) == 1
+    assert coord.emitted[0]["code"] == "tool_failed"
