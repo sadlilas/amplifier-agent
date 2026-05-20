@@ -134,6 +134,31 @@ class StreamingEmitter:
 
     async def on_llm_response(self, event: str, data: dict[str, Any]) -> HookResult:
         """Kernel ``llm:response`` → wire ``usage`` + ``result/final``."""
+        session_id: str = data.get("session_id", "")
+        turn_id: str = data.get("turn_id", "")
+        in_tok: int = int(data.get("input_tokens", 0) or 0)
+        out_tok: int = int(data.get("output_tokens", 0) or 0)
+        text: str = data.get("text", "") or ""
+
+        if in_tok or out_tok:
+            await self._emit(
+                {
+                    "type": "usage",
+                    "sessionId": session_id,
+                    "turnId": turn_id,
+                    "inputTokens": in_tok,
+                    "outputTokens": out_tok,
+                }
+            )
+        if text:
+            await self._emit(
+                {
+                    "type": "result/final",
+                    "sessionId": session_id,
+                    "turnId": turn_id,
+                    "text": text,
+                }
+            )
         return HookResult(action="continue")
 
 

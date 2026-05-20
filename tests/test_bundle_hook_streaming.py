@@ -271,3 +271,76 @@ async def test_content_block_end_cleans_up_state() -> None:
 
     assert block_id not in emitter._delta_seen
     assert block_id not in emitter._block_text
+
+
+# ---------------------------------------------------------------------------
+# Sub-cycle 11D: llm:response -> usage + result/final
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_llm_response_emits_usage_and_result_final() -> None:
+    """llm:response emits 'usage' and 'result/final' with correct fields."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    data = {
+        "session_id": "sess-7",
+        "turn_id": "turn-7",
+        "text": "the full reply",
+        "input_tokens": 100,
+        "output_tokens": 50,
+    }
+    result = await emitter.on_llm_response("llm:response", data)
+
+    assert result.action == "continue"
+    assert len(coord.emitted) == 2
+
+    emitted_types = [ev["type"] for ev in coord.emitted]
+    assert "usage" in emitted_types
+    assert "result/final" in emitted_types
+
+    usage_ev = next(ev for ev in coord.emitted if ev["type"] == "usage")
+    assert usage_ev["inputTokens"] == 100
+    assert usage_ev["outputTokens"] == 50
+
+    final_ev = next(ev for ev in coord.emitted if ev["type"] == "result/final")
+    assert final_ev["text"] == "the full reply"
+
+
+@pytest.mark.asyncio
+async def test_llm_response_no_usage_when_zero_tokens() -> None:
+    """llm:response with zero tokens emits only result/final (no usage event)."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    data = {
+        "session_id": "sess-8",
+        "turn_id": "turn-8",
+        "text": "reply only",
+    }
+    await emitter.on_llm_response("llm:response", data)
+
+    emitted_types = [ev["type"] for ev in coord.emitted]
+    assert "usage" not in emitted_types
+    assert "result/final" in emitted_types
+
+
+@pytest.mark.asyncio
+async def test_llm_response_no_final_when_no_text() -> None:
+    """llm:response with empty text emits usage but no result/final."""
+    coord = _MockCoordinator()
+    emitter = StreamingEmitter(coord)
+
+    data = {
+        "session_id": "sess-9",
+        "turn_id": "turn-9",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "text": "",
+    }
+    await emitter.on_llm_response("llm:response", data)
+
+    emitted_types = [ev["type"] for ev in coord.emitted]
+    assert "usage" in emitted_types
+    assert "result/final" not in emitted_types
