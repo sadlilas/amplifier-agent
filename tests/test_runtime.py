@@ -1,14 +1,18 @@
 """Tests for _runtime.py — make_turn_handler factory.
 
-Four async tests covering:
+Six async tests covering:
 1. handler returns stub reply, execute awaited once with prompt, session_id and is_resumed forwarded
 2. session_cwd resolved to tmp_path.resolve()
 3. empty string session_id becomes None
 4. is_resumed=True propagates to create_session
+5. session.spawn capability registered on session.coordinator
+6. display.emit and approval.request registered as coordinator capabilities
+7. coordinator.hooks.set_default_fields called with session_id=ctx.session_id
 """
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -180,6 +184,98 @@ async def test_handler_registers_session_spawn_capability() -> None:
     calls = session_mock.coordinator.register_capability.call_args_list
     spawn_calls = [c for c in calls if c.args and c.args[0] == "session.spawn"]
     assert len(spawn_calls) == 1, (
-        f"Expected exactly one 'session.spawn' registration; "
-        f"got {len(spawn_calls)}.  All calls: {calls}"
+        f"Expected exactly one 'session.spawn' registration; got {len(spawn_calls)}.  All calls: {calls}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fake helpers for capability registration / default-fields tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeHooks:
+    """Captures set_default_fields kwargs for assertion."""
+
+    def __init__(self) -> None:
+        self.set_default_args: dict[str, Any] = {}
+
+    def set_default_fields(self, **kw: Any) -> None:
+        self.set_default_args.update(kw)
+
+
+class _FakeCoordinator:
+    """Captures register_capability calls; exposes _FakeHooks as .hooks."""
+
+    def __init__(self) -> None:
+        self.captured_caps: dict[str, Any] = {}
+        self.hooks = _FakeHooks()
+
+    def register_capability(self, name: str, fn: Any) -> None:
+        self.captured_caps[name] = fn
+
+
+def _fake_prepared_with_coordinator(coordinator: Any, reply: str = "ok") -> MagicMock:
+    """Return a prepared mock whose session has the given coordinator."""
+    execute_mock = AsyncMock(return_value=reply)
+    session_mock = MagicMock()
+    session_mock.execute = execute_mock
+    session_mock.coordinator = coordinator
+
+    async def _fake_create_session(**kwargs: Any) -> MagicMock:
+        return session_mock
+
+    prepared_mock = MagicMock()
+    prepared_mock.create_session = _fake_create_session
+    prepared_mock.mount_plan = {"agents": {}}
+    return prepared_mock
+
+
+# ---------------------------------------------------------------------------
+# Test 6: display.emit and approval.request registered as coordinator capabilities
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_make_turn_handler_registers_display_emit_as_capability() -> None:
+    """make_turn_handler must register 'display.emit' and 'approval.request'
+    as coordinator capabilities after create_session returns."""
+    coordinator = _FakeCoordinator()
+    prepared = _fake_prepared_with_coordinator(coordinator, reply="ok")
+    handler = make_turn_handler(prepared, cwd=None, is_resumed=False)
+
+    result = await handler(_ctx())
+
+    assert result == "ok"
+    assert "display.emit" in coordinator.captured_caps, (
+        f"Expected 'display.emit' in captured_caps; got {list(coordinator.captured_caps)}"
+    )
+    assert "approval.request" in coordinator.captured_caps, (
+        f"Expected 'approval.request' in captured_caps; got {list(coordinator.captured_caps)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 7: coordinator.hooks.set_default_fields called with session_id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_make_turn_handler_sets_default_fields_session_id() -> None:
+    """coordinator.hooks.set_default_fields must be called with
+    session_id equal to ctx.session_id ('sess-9')."""
+    coordinator = _FakeCoordinator()
+    prepared = _fake_prepared_with_coordinator(coordinator, reply="ok")
+    handler = make_turn_handler(prepared, cwd=None, is_resumed=False)
+
+    ctx = TurnContext(
+        session_id="sess-9",
+        turn_id="t-1",
+        prompt="hello",
+        approval=MagicMock(),
+        display=MagicMock(),
+    )
+    await handler(ctx)
+
+    assert coordinator.hooks.set_default_args.get("session_id") == "sess-9", (
+        f"Expected session_id='sess-9'; got {coordinator.hooks.set_default_args}"
     )

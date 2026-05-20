@@ -24,9 +24,11 @@ def make_turn_handler(
     """Return a TurnHandler closed over the loaded PreparedBundle.
 
     The returned coroutine creates a fresh AmplifierSession per turn
-    (one-shot stateful via logical replay; OpenClaw pattern), registers the
-    ``session.spawn`` capability so the ``delegate`` tool can spawn sub-agents,
-    and returns the model reply.
+    (one-shot stateful via logical replay; OpenClaw pattern), wires
+    ``ctx.display.emit`` and ``ctx.approval.request`` into the coordinator
+    as capabilities, sets per-turn default event fields on the hooks system,
+    registers the ``session.spawn`` capability so the ``delegate`` tool can
+    spawn sub-agents, and returns the model reply.
 
     Parameters
     ----------
@@ -67,6 +69,16 @@ def make_turn_handler(
             session_cwd=resolved_cwd,
             is_resumed=is_resumed,
         )
+
+        # Wire display and approval into the coordinator so hook events can
+        # flow back to the client.  Per SC-1, set default event fields so
+        # every kernel event carries session_id and turn_id automatically.
+        session.coordinator.hooks.set_default_fields(
+            session_id=ctx.session_id,
+            turn_id=ctx.turn_id,
+        )
+        session.coordinator.register_capability("display.emit", ctx.display.emit)
+        session.coordinator.register_capability("approval.request", ctx.approval.request)
 
         # Register session.spawn on the coordinator so the delegate tool can
         # spawn child sessions.  Per KERNEL_PHILOSOPHY, this is app-layer
