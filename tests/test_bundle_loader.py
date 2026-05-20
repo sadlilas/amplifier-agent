@@ -67,3 +67,50 @@ def test_agents_dir_exposes_vendored_agents() -> None:
     actual_names = {p.name for p in AGENTS_DIR.iterdir() if p.suffix == ".md"}
     missing = expected_names - actual_names
     assert not missing, f"AGENTS_DIR missing vendored agents: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_vendored_bundle_has_no_includes_block() -> None:
+    """Vendored bundle.md must not contain `includes:` — the resolver does not handle named-bundle URIs.
+
+    Regression guard for `No handler for URI: build-up-foundation`. Per the Strategy 1
+    decision in docs/designs/2026-05-19-baked-in-bundle-decision.md, the manifest is now
+    self-describing with explicit modules + agents and no foundation include.
+    """
+    from amplifier_agent_lib.bundle import BUNDLE_MD
+
+    content = BUNDLE_MD.read_text()
+    assert "\nincludes:" not in content, "bundle.md must not contain a top-level `includes:` block"
+
+
+@pytest.mark.asyncio
+async def test_vendored_bundle_declares_all_four_agents() -> None:
+    """Vendored bundle.md declares explorer/planner/coder/tester via the agents: block."""
+    from amplifier_agent_lib.bundle.loader import load_and_prepare_bundle
+
+    prepared = await load_and_prepare_bundle(install_deps=False)
+
+    # Foundation's parsed Bundle exposes the agents block — exact attribute set in Task 1.
+    agents_by_name = {a.name: a for a in prepared.bundle.agents}
+    assert set(agents_by_name) >= {"explorer", "planner", "coder", "tester"}, (
+        f"Expected all four vendored agents; got {sorted(agents_by_name)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_vendored_agents_resolve_to_wheel_local_files() -> None:
+    """Each agent in the agents: block resolves to a file under the bundle/agents/ directory."""
+    from amplifier_agent_lib.bundle import AGENTS_DIR
+    from amplifier_agent_lib.bundle.loader import load_and_prepare_bundle
+
+    prepared = await load_and_prepare_bundle(install_deps=False)
+
+    for agent in prepared.bundle.agents:
+        # Foundation should have resolved each agent ref to an absolute Path under AGENTS_DIR.
+        # The exact attribute on each agent (`agent.source_path`, `agent.path`, `agent.file`)
+        # is set by Task 1's discovery; substitute below if different.
+        resolved: Path = Path(agent.source_path)
+        assert resolved.is_file(), f"Agent {agent.name} did not resolve to a file: {resolved}"
+        assert AGENTS_DIR in resolved.parents or resolved.parent == AGENTS_DIR, (
+            f"Agent {agent.name} resolved outside the vendored AGENTS_DIR: {resolved}"
+        )
