@@ -69,7 +69,7 @@ L5  amplifier-foundation kernel                             UNCHANGED
 | # | Decision | Rationale |
 |---|----------|-----------|
 | 1 | **Rebuild from scratch.** Not an evolution of V1. | V1's `cachedClient`, `serve` verb, and adapter-owned spawn directly contradict Brian's D1/D2/D3. Rebuild eliminates the critic's HIGH-severity carry-forward bugs (the `session.ts` `this.active` race; the L14 synthesis with no cross-language contract). |
-| 2 | **Built-in bundle, vendored.** | Strips bundle-loading from cold-start — the engineering work behind Brian's "near-instant once bundle-loading overhead is stripped" claim. First-invocation prepare-and-cache to XDG cache. |
+| 2 | **Vendored opinionated manifest.** | Manifest text and four sub-session agent files are vendored in the wheel; modules referenced by the manifest live in their own repos at `@main` and are git-cloned on first invocation. First-run cost: 5–30 s. Subsequent runs hit the warm XDG pickle in <1 s. Per Strategy 1 of `docs/designs/2026-05-19-baked-in-bundle-decision.md`. |
 | 3 | **One reactive stdio coprocess per invocation. Not a server.** | Eight definitional axes distinguish this from a server (no daemon, no listener, no supervisor, no port, single-client, parent-owned, dies with caller, no state across clients). The honest taxonomy term is "stdio coprocess." |
 | 4 | **Two modes, one engine.** | The library `amplifier_agent_lib` is mode-agnostic — it never touches stdin/stdout directly. The CLI binary wraps it twice. This is the layer that absorbs the duality cleanly. |
 | 5 | **Day-one languages: TypeScript + Python.** | Brian 33:46. Wrappers are siblings, not stacked. CLI is a third sibling — all three are thin layers over the library. |
