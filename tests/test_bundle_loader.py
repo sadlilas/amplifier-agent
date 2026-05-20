@@ -90,10 +90,10 @@ async def test_vendored_bundle_declares_all_four_agents() -> None:
 
     prepared = await load_and_prepare_bundle(install_deps=False)
 
-    # Foundation's parsed Bundle exposes the agents block — exact attribute set in Task 1.
-    agents_by_name = {a.name: a for a in prepared.bundle.agents}
-    assert set(agents_by_name) >= {"explorer", "planner", "coder", "tester"}, (
-        f"Expected all four vendored agents; got {sorted(agents_by_name)}"
+    # agents is dict[str, dict[str, Any]] — keys are agent names.
+    agent_names = set(prepared.bundle.agents)
+    assert agent_names >= {"explorer", "planner", "coder", "tester"}, (
+        f"Expected all four vendored agents; got {sorted(agent_names)}"
     )
 
 
@@ -105,12 +105,11 @@ async def test_vendored_agents_resolve_to_wheel_local_files() -> None:
 
     prepared = await load_and_prepare_bundle(install_deps=False)
 
-    for agent in prepared.bundle.agents:
+    for agent_name, agent_def in prepared.bundle.agents.items():
         # Foundation should have resolved each agent ref to an absolute Path under AGENTS_DIR.
-        # The exact attribute on each agent (`agent.source_path`, `agent.path`, `agent.file`)
-        # is set by Task 1's discovery; substitute below if different.
-        resolved: Path = Path(agent.source_path)
-        assert resolved.is_file(), f"Agent {agent.name} did not resolve to a file: {resolved}"
+        # agents is dict[str, dict[str, Any]]; the definition dict carries `source_path`.
+        resolved: Path = Path(agent_def["source_path"])
+        assert resolved.is_file(), f"Agent {agent_name} did not resolve to a file: {resolved}"
         assert AGENTS_DIR in resolved.parents or resolved.parent == AGENTS_DIR, (
-            f"Agent {agent.name} resolved outside the vendored AGENTS_DIR: {resolved}"
+            f"Agent {agent_name} resolved outside the vendored AGENTS_DIR: {resolved}"
         )
