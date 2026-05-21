@@ -56,3 +56,45 @@ def test_typed_dict_to_schema_turn_submit_result_handles_optional_union() -> Non
     assert "anyOf" in reply_schema
     types = {sub.get("type") for sub in reply_schema["anyOf"]}
     assert types == {"string", "null"}
+
+
+def test_gen_emits_schema_for_every_typeddict(tmp_path: Path) -> None:
+    """All TypedDicts across the four protocol modules become schema files."""
+    from amplifier_agent_lib.protocol._gen import main
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["--output-dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    schemas_dir = tmp_path / "schemas"
+    # Spot-check: known TypedDicts from each module must have schema files
+    expected = {
+        "InitializeParams.schema.json",
+        "InitializeResult.schema.json",
+        "TurnSubmitParams.schema.json",
+        "TurnSubmitResult.schema.json",
+        "ResultDeltaNotification.schema.json",
+        "ResultFinalNotification.schema.json",
+        "ApprovalRequestNotification.schema.json",
+        "ClientCapabilities.schema.json",
+        "ServerCapabilities.schema.json",
+        "error_codes.schema.json",
+    }
+    actual = {p.name for p in schemas_dir.iterdir()}
+    missing = expected - actual
+    assert not missing, f"missing schema files: {missing}\nfound: {sorted(actual)}"
+
+
+def test_gen_error_codes_schema_is_string_enum(tmp_path: Path) -> None:
+    """error_codes.schema.json enumerates the ErrorCode StrEnum values."""
+    import json
+
+    from amplifier_agent_lib.protocol._gen import main
+    from amplifier_agent_lib.protocol.errors import ErrorCode
+
+    runner = CliRunner()
+    runner.invoke(main, ["--output-dir", str(tmp_path)])
+
+    schema = json.loads((tmp_path / "schemas" / "error_codes.schema.json").read_text())
+    assert schema["type"] == "string"
+    assert set(schema["enum"]) == {ec.value for ec in ErrorCode}

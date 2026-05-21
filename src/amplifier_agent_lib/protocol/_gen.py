@@ -15,11 +15,16 @@ Regenerate via:
 
 from __future__ import annotations
 
+import importlib
+import inspect
+import json
 import types as _types
 from pathlib import Path
 from typing import Any, NotRequired, Required, Union, get_args, get_origin, get_type_hints
 
 import click
+
+from amplifier_agent_lib.protocol.errors import ErrorCode
 
 # ---------------------------------------------------------------------------
 # JSON Schema type-mapping helpers
@@ -123,6 +128,47 @@ def typed_dict_to_schema(td: type) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Protocol module discovery
+# ---------------------------------------------------------------------------
+
+_PROTOCOL_MODULES: tuple[str, ...] = (
+    "amplifier_agent_lib.protocol.methods",
+    "amplifier_agent_lib.protocol.notifications",
+    "amplifier_agent_lib.protocol.capabilities",
+)
+
+
+def _is_typed_dict(obj: object) -> bool:
+    """Heuristic: TypedDicts expose __required_keys__ AND __optional_keys__."""
+    return inspect.isclass(obj) and hasattr(obj, "__required_keys__") and hasattr(obj, "__optional_keys__")
+
+
+def _discover_typed_dicts() -> list[type]:
+    """Return every TypedDict defined in the protocol modules, in import order."""
+    found: list[type] = []
+    seen: set[str] = set()
+    for mod_name in _PROTOCOL_MODULES:
+        mod = importlib.import_module(mod_name)
+        for _, obj in inspect.getmembers(mod, _is_typed_dict):
+            # Only emit if defined in one of our modules (skip re-exports)
+            if obj.__module__ in _PROTOCOL_MODULES and obj.__name__ not in seen:
+                found.append(obj)
+                seen.add(obj.__name__)
+    return found
+
+
+def _write_error_codes_schema(schemas_dir: Path) -> None:
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "ErrorCode",
+        "description": "Wire-level error codes for the JSON-RPC error.data.code field.",
+        "type": "string",
+        "enum": sorted(ec.value for ec in ErrorCode),
+    }
+    (schemas_dir / "error_codes.schema.json").write_text(json.dumps(schema, indent=2) + "\n")
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -140,7 +186,16 @@ def main(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     schemas_dir = output_dir / "schemas"
     schemas_dir.mkdir(exist_ok=True)
-    click.echo(f"[gen] output directory ready: {output_dir}")
+
+    typed_dicts = _discover_typed_dicts()
+    for td in typed_dicts:
+        schema = typed_dict_to_schema(td)
+        path = schemas_dir / f"{td.__name__}.schema.json"
+        path.write_text(json.dumps(schema, indent=2) + "\n")
+
+    _write_error_codes_schema(schemas_dir)
+
+    click.echo(f"[gen] wrote {len(typed_dicts)} schemas + error_codes.schema.json to {schemas_dir}")
 
 
 if __name__ == "__main__":
