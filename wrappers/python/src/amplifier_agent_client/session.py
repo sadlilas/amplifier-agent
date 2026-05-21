@@ -82,6 +82,8 @@ class SessionHandle:
         display_on_event:       Optional push callback invoked per kept event.
         display_subagent_events: 'all' (default) or 'none'; 'none' suppresses sub-agent
                                  events (those with parent_turn_id set).
+        engine_info:            Optional dict with binaryPath/protocolVersion/engineVersion/
+                                bundleDigest from the version probe. Used by get_engine_info().
     """
 
     def __init__(
@@ -93,6 +95,7 @@ class SessionHandle:
         approval_timeout_ms: int = 30000,
         display_on_event: Callable[[DisplayEvent], Any] | None = None,
         display_subagent_events: str = "all",
+        engine_info: dict[str, Any] | None = None,
     ) -> None:
         self._rpc = rpc
         self._session_id = session_id
@@ -100,12 +103,27 @@ class SessionHandle:
         self._submitted = False
         self._display_on_event = display_on_event
         self._display_keep = apply_display_filter(subagent_events=display_subagent_events)  # type: ignore[arg-type]
+        self._engine_info: dict[str, Any] = engine_info or {}
         # Wire the approval bridge if an adapter is supplied (§5.2).
         if approval_on_request is not None:
             rpc.on_request(
                 "approval/request",
                 make_approval_handler(on_request=approval_on_request, timeout_ms=approval_timeout_ms),
             )
+
+    def get_engine_info(self) -> dict[str, Any]:
+        """Return resolved engine metadata (D5).
+
+        Returns a dict with keys: binary_path, protocol_version, engine_version,
+        bundle_digest.  All values come from the version probe run before the
+        subprocess was spawned.
+        """
+        return {
+            "binary_path": self._engine_info.get("binary_path", ""),
+            "protocol_version": self._engine_info.get("protocol_version", ""),
+            "engine_version": self._engine_info.get("engine_version", ""),
+            "bundle_digest": self._engine_info.get("bundle_digest", ""),
+        }
 
     def submit(self, prompt: str) -> AsyncIterator[DisplayEvent]:
         """Submit a prompt and return an AsyncIterator of DisplayEvents.

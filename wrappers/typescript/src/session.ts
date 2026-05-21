@@ -52,11 +52,27 @@ export class AaaError extends Error {
 /** The notification method that signals end-of-turn. */
 export const TERMINAL_NOTIFICATION = "result/final";
 
+/** Info returned by SessionHandle.getEngineInfo() (D5). */
+export interface EngineInfo {
+  binaryPath: string;
+  protocolVersion: string;
+  engineVersion: string;
+  bundleDigest: string;
+}
+
 /** Dependencies injected into SessionHandle. */
 export interface SessionDeps {
   sessionId: string;
   /** Called by cancel() and dispose() to SIGTERM the subprocess (D3). */
   terminate: () => Promise<unknown>;
+  /** Resolved binary path (D5). Optional — defaults to empty string. */
+  binaryPath?: string;
+  /** Protocol version reported by the engine binary. */
+  protocolVersion?: string;
+  /** Engine binary version. */
+  engineVersion?: string;
+  /** Bundle digest from the engine version probe. */
+  bundleDigest?: string;
 }
 
 /** Minimal interface for the JSON-RPC client used by SessionHandle. */
@@ -81,6 +97,19 @@ export class SessionHandle {
     if (approval && rpc.onRequest) {
       rpc.onRequest("approval/request", makeApprovalHandler(approval));
     }
+  }
+
+  /**
+   * Return resolved engine metadata (D5).
+   * All fields come from the version probe run before the subprocess was spawned.
+   */
+  getEngineInfo(): EngineInfo {
+    return {
+      binaryPath: this.deps.binaryPath ?? "",
+      protocolVersion: this.deps.protocolVersion ?? "",
+      engineVersion: this.deps.engineVersion ?? "",
+      bundleDigest: this.deps.bundleDigest ?? "",
+    };
   }
 
   /**
