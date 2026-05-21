@@ -173,11 +173,13 @@ def _evaluate(
                         continue
                 passed = True
                 break
-            results.append({
-                "kind": kind,
-                "passed": passed,
-                "detail": f"notification {method!r} {'found' if passed else 'not found'}",
-            })
+            results.append(
+                {
+                    "kind": kind,
+                    "passed": passed,
+                    "detail": f"notification {method!r} {'found' if passed else 'not found'}",
+                }
+            )
 
         elif kind == "no_notification":
             method = assertion["method"]
@@ -186,44 +188,52 @@ def _evaluate(
             check_list = engine_notifs if source == "engine" else all_notifs
             found = any(n.get("method") == method for n in check_list)
             passed = not found
-            results.append({
-                "kind": kind,
-                "passed": passed,
-                "detail": f"notification {method!r} {'unexpectedly found' if not passed else 'correctly absent'}",
-            })
+            results.append(
+                {
+                    "kind": kind,
+                    "passed": passed,
+                    "detail": f"notification {method!r} {'unexpectedly found' if not passed else 'correctly absent'}",
+                }
+            )
 
         elif kind == "error_returned":
             assertion_id: int | None = assertion.get("id")
             code: str | None = assertion.get("code")
-            if assertion_id in errors:
+            if assertion_id is not None and assertion_id in errors:
                 error_str = str(errors[assertion_id])
                 passed = code is None or code in error_str
             else:
                 passed = False
-            results.append({
-                "kind": kind,
-                "passed": passed,
-                "detail": f"error for id={assertion_id}: {'found' if passed else 'not found'}",
-            })
+            results.append(
+                {
+                    "kind": kind,
+                    "passed": passed,
+                    "detail": f"error for id={assertion_id}: {'found' if passed else 'not found'}",
+                }
+            )
 
         elif kind == "response_matches":
-            assertion_id = assertion.get("id")
+            assertion_id: int | None = assertion.get("id")
             expected: dict[str, Any] = assertion.get("result", {})
-            actual = responses.get(assertion_id)
+            actual = responses.get(assertion_id) if assertion_id is not None else None
             passed = actual is not None and isinstance(actual, dict) and _dict_contains(actual, expected)
-            results.append({
-                "kind": kind,
-                "passed": passed,
-                "detail": f"response for id={assertion_id}: {'matches' if passed else 'no match'}",
-            })
+            results.append(
+                {
+                    "kind": kind,
+                    "passed": passed,
+                    "detail": f"response for id={assertion_id}: {'matches' if passed else 'no match'}",
+                }
+            )
 
         else:
             # Unknown assertion kinds are skipped with ok=True per spec.
-            results.append({
-                "kind": kind,
-                "passed": True,
-                "detail": f"kind {kind!r} not evaluated (skipped)",
-            })
+            results.append(
+                {
+                    "kind": kind,
+                    "passed": True,
+                    "detail": f"kind {kind!r} not evaluated (skipped)",
+                }
+            )
 
     return {
         "fixture": fixture.name,

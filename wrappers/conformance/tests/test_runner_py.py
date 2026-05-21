@@ -16,12 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 
 FIXTURES_DIR = (
-    Path(__file__).parent.parent.parent.parent
-    / "src"
-    / "amplifier_agent_lib"
-    / "protocol"
-    / "conformance"
-    / "fixtures"
+    Path(__file__).parent.parent.parent.parent / "src" / "amplifier_agent_lib" / "protocol" / "conformance" / "fixtures"
 )
 
 
