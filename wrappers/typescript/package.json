@@ -14,7 +14,8 @@
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "gen:types": "tsx scripts/gen-types.ts"
   },
   "engines": {
     "node": ">=20"
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "json-schema-to-typescript": "^15.0.0",
+    "tsx": "^4.7.0",
     "typescript": "^5.4.0",
     "vitest": "^1.4.0"
   }
