@@ -46,6 +46,10 @@ dev = [
     "jsonschema>=4.20",
 ]
 
+[tool.pyright]
+pythonVersion = "3.12"
+extraPaths = ["src", "wrappers/python/src"]
+
 [tool.ruff]
 line-length = 120
 target-version = 'py312'

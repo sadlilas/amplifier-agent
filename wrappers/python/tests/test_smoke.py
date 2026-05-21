@@ -20,6 +20,5 @@ async def test_protocol_version_constant_is_exported() -> None:
     from amplifier_agent_client import PROTOCOL_VERSION_REQUIRED_BY_WRAPPER
 
     assert PROTOCOL_VERSION_REQUIRED_BY_WRAPPER == "2026-05-aaa-v0", (
-        f"Protocol version mismatch: got {PROTOCOL_VERSION_REQUIRED_BY_WRAPPER!r}, "
-        "expected '2026-05-aaa-v0'"
+        f"Protocol version mismatch: got {PROTOCOL_VERSION_REQUIRED_BY_WRAPPER!r}, expected '2026-05-aaa-v0'"
     )
