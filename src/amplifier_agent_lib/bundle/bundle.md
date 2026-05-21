@@ -121,16 +121,6 @@ hooks:
       initial_trigger_turn: 2
       update_interval_turns: 5
 
-  # === Streaming hook (vendored local module) ===
-  # Translates kernel hook events (tool:pre, tool:post, content_block:delta,
-  # llm:response, etc.) into typed DisplayEvent shapes emitted via the
-  # display.emit capability.  Uses source: local because the module lives
-  # inside this wheel (amplifier_agent_lib.bundle.hook_streaming) rather than
-  # at a git-hosted URL.  The loader short-circuits on source: local and
-  # calls module.mount(coordinator, config) via importlib.
-  - module: amplifier_agent_lib.bundle.hook_streaming
-    source: local
-
 # The four self-sufficient sub-session agents this bundle ships.
 # Definitions are vendored at src/amplifier_agent_lib/bundle/agents/<name>.md;
 # the loader hydrates them at compose time into overlay-shaped dicts that the

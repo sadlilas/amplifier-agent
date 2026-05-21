@@ -45,6 +45,7 @@ def make_turn_handler(
     TurnHandler
         Async callable that accepts a TurnContext and returns a reply string.
     """
+    from amplifier_agent_lib.bundle.hook_streaming import mount as mount_streaming_hook
     from amplifier_agent_lib.spawn import hydrate_agent_overlay, spawn_sub_session
 
     resolved_cwd: Path | None = Path(cwd).resolve() if cwd else None
@@ -79,6 +80,12 @@ def make_turn_handler(
         )
         session.coordinator.register_capability("display.emit", ctx.display.emit)
         session.coordinator.register_capability("approval.request", ctx.approval.request)
+
+        # Mount the vendored streaming hook programmatically.  It lives inside this
+        # wheel rather than at a git URL, so we bypass foundation's URI resolver
+        # entirely and register the hook handlers directly on the coordinator.
+        # Matches the canonical pattern in amplifier-app-cli/main.py:2551.
+        await mount_streaming_hook(session.coordinator, {})
 
         # Register session.spawn on the coordinator so the delegate tool can
         # spawn child sessions.  Per KERNEL_PHILOSOPHY, this is app-layer

@@ -156,26 +156,6 @@ async def test_explorer_agent_tools_populated_after_prepare() -> None:
     )
 
 
-@pytest.mark.asyncio
-async def test_prepared_bundle_mounts_hook_streaming() -> None:
-    """Vendored bundle.md must declare hook_streaming in the hooks: block.
-
-    Regression guard for Gap (d) Part 3: the streaming hook module is dead code
-    until the bundle manifest mounts it.  This test verifies the mount_plan
-    contains an entry referencing amplifier_agent_lib.bundle.hook_streaming.
-    """
-    from amplifier_agent_lib import __version__
-    from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
-
-    prepared = await load_and_prepare_cached(aaa_version=__version__)
-    hooks_block = prepared.mount_plan.get("hooks") or []
-    module_names = [entry.get("module", "") for entry in hooks_block if isinstance(entry, dict)]
-    assert any("hook_streaming" in name or "streaming" in name.lower() for name in module_names), (
-        f"hook_streaming not found in bundle mount_plan hooks: {module_names!r}. "
-        "Add `- module: amplifier_agent_lib.bundle.hook_streaming` to bundle.md hooks: block."
-    )
-
-
 def test_agents_dir_resolves_in_editable_install() -> None:
     """AGENTS_DIR (used at runtime by the manifest's file:// agent refs) must contain real files.
 

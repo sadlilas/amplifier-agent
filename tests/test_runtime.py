@@ -202,6 +202,9 @@ class _FakeHooks:
     def set_default_fields(self, **kw: Any) -> None:
         self.set_default_args.update(kw)
 
+    def register(self, event: str, handler: Any, *, name: str = "") -> None:
+        """No-op stub — allows programmatic hook mounts to succeed in unit tests."""
+
 
 class _FakeCoordinator:
     """Captures register_capability calls; exposes _FakeHooks as .hooks."""

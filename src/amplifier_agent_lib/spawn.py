@@ -465,6 +465,19 @@ async def spawn_sub_session(**kwargs: Any) -> dict[str, Any]:
     if parent_mention:
         child_session.coordinator.register_capability("mention_resolver", parent_mention)
 
+    # -- Propagate display.emit capability and mount streaming hook --------
+    # The streaming hook is mounted programmatically (not via bundle.md) per
+    # the 2026-05-20 fix for the 'source: local' URI handler bug.  Child
+    # sessions need the same hook so delegate-spawned agents emit display
+    # events.  We inherit the parent's display.emit capability directly since
+    # display.emit is a coordinator capability, not a session attribute.
+    from amplifier_agent_lib.bundle.hook_streaming import mount as mount_streaming_hook
+
+    parent_display_emit = parent_session.coordinator.get_capability("display.emit")
+    if parent_display_emit:
+        child_session.coordinator.register_capability("display.emit", parent_display_emit)
+    await mount_streaming_hook(child_session.coordinator, {})
+
     # -- Execute the task and clean up ---------------------------------
     try:
         response = await child_session.execute(instruction)
