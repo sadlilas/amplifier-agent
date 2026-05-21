@@ -6,12 +6,17 @@
  *   - Yields every display/event-shaped notification that arrives
  *   - Terminates the iterator when result/final notification is observed
  *     OR when the turn/submit JSON-RPC response arrives (whichever first)
+ *   - L14 safety net: if turn/submit response contains a non-null reply and
+ *     result/final was never observed, synthesizes a result/final DisplayEvent
+ *     with synthesized: true as the last yielded event.
  *
  * Per design D10, only one submit() per subprocess lifetime in v1.
  * A second call throws AaaError(lifecycle_unsupported).
  *
  * cancel()/dispose() both call terminate() on the underlying transport (D3).
  */
+
+import { synthesizeFinalIfMissing } from "./l14.js";
 
 /** A display event yielded by SessionHandle.submit(). */
 export interface DisplayEvent {
@@ -89,6 +94,10 @@ export class SessionHandle {
   /**
    * Async generator that buffers display events from notification subscription
    * and terminates when result/final arrives or turn/submit response settles.
+   *
+   * L14 safety net: if turn/submit response contains a non-null reply and
+   * result/final was never observed, synthesizes a result/final DisplayEvent
+   * with synthesized: true as the last yielded event before the iterator ends.
    */
   private async *makeIterable(
     sessionId: string,
@@ -99,6 +108,8 @@ export class SessionHandle {
 
     const queue: QueueItem[] = [];
     let wakeUp: (() => void) | null = null;
+    // L14: track whether result/final notification has been observed.
+    let sawFinal = false;
 
     const push = (item: QueueItem): void => {
       queue.push(item);
@@ -121,16 +132,32 @@ export class SessionHandle {
       push(event);
       // result/final signals end-of-turn; push sentinel after the event.
       if (notif.method === TERMINAL_NOTIFICATION) {
+        sawFinal = true;
         push(null);
       }
     });
 
-    // Start turn/submit request; push sentinel when it settles (success or error).
+    // Start turn/submit request.
+    // On success: L14 synthesis check — if no result/final was observed and
+    //   reply is non-null, push a synthesized result/final event before sentinel.
+    // On error: push sentinel immediately (no reply to synthesize from).
     void this.rpc
       .call("turn/submit", { sessionId, turnId, prompt })
-      .finally(() => {
-        push(null);
-      });
+      .then(
+        (result) => {
+          const r = result as { reply?: string | null } | null;
+          const reply = r != null ? (r.reply ?? null) : null;
+          const syn = synthesizeFinalIfMissing({ sawFinal, reply, sessionId, turnId });
+          if (syn !== null) {
+            push(syn);
+          }
+          push(null);
+        },
+        () => {
+          // On error, still terminate the iterator.
+          push(null);
+        },
+      );
 
     // Drain queue until sentinel.
     outer: while (true) {

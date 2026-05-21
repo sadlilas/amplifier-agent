@@ -20,6 +20,8 @@ import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from amplifier_agent_client.l14 import synthesize_final_if_missing
+
 
 class AaaError(Exception):
     """Typed error for AaA wrapper lifecycle and protocol violations."""
@@ -106,8 +108,14 @@ class SessionHandle:
         Uses asyncio.Queue with None sentinel for termination.
         - on_notif puts events; result/final also puts sentinel.
         - submit_task's finally puts sentinel when RPC call settles.
+
+        L14 safety net: if turn/submit response contains a non-null reply and
+        result/final was never observed, synthesizes a result/final DisplayEvent
+        with synthesized=True as the last yielded event before the iterator ends.
         """
         queue: asyncio.Queue[DisplayEvent | None] = asyncio.Queue()
+        # L14: mutable flag shared between on_notif and submit_task closures.
+        saw_final_flag: dict[str, bool] = {"seen": False}
 
         def on_notif(notif: dict[str, Any]) -> None:
             method = notif.get("method", "")
@@ -122,13 +130,14 @@ class SessionHandle:
             queue.put_nowait(event)
             # result/final signals end-of-turn; put sentinel after the event.
             if method == TERMINAL_NOTIFICATION:
+                saw_final_flag["seen"] = True
                 queue.put_nowait(None)
 
         self._rpc.on_notification(on_notif)
 
         async def submit_task() -> None:
             try:
-                await self._rpc.call(
+                result = await self._rpc.call(
                     "turn/submit",
                     {
                         "sessionId": self._session_id,
@@ -136,6 +145,25 @@ class SessionHandle:
                         "prompt": prompt,
                     },
                 )
+                # L14 synthesis: if no result/final was observed and reply is non-null,
+                # synthesize a result/final event as the last yielded event.
+                reply: str | None = result.get("reply") if isinstance(result, dict) else None
+                syn = synthesize_final_if_missing(
+                    saw_final=saw_final_flag["seen"],
+                    reply=reply,
+                    session_id=self._session_id,
+                    turn_id=turn_id,
+                )
+                if syn is not None:
+                    queue.put_nowait(
+                        DisplayEvent(
+                            type=syn["type"],
+                            session_id=syn["session_id"],
+                            turn_id=syn["turn_id"],
+                            synthesized=syn["synthesized"],
+                            payload=syn["payload"],
+                        )
+                    )
             finally:
                 # Sentinel when response arrives (success or error).
                 queue.put_nowait(None)
