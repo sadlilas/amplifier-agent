@@ -5,21 +5,33 @@ from __future__ import annotations
 import pytest
 
 
-def test_display_system_protocol_conformance() -> None:
-    """A class with a sync emit() method satisfies the DisplaySystem Protocol."""
+def test_display_system_emit_signature_is_async() -> None:
+    """DisplaySystem.emit must be declared as async def."""
+    import inspect
+
+    from amplifier_agent_lib.protocol_points.base import DisplaySystem
+
+    assert inspect.iscoroutinefunction(DisplaySystem.emit), (
+        "DisplaySystem.emit must be `async def emit(event: DisplayEvent) -> None`"
+    )
+
+
+@pytest.mark.asyncio
+async def test_display_system_protocol_conformance() -> None:
+    """A class with an async emit() method satisfies the DisplaySystem Protocol."""
     from amplifier_agent_lib.protocol_points.base import DisplayEvent, DisplaySystem
 
     class _RecordingDisplay:
         def __init__(self) -> None:
             self.events: list[DisplayEvent] = []
 
-        def emit(self, event: DisplayEvent) -> None:
+        async def emit(self, event: DisplayEvent) -> None:
             self.events.append(event)
 
     recorder = _RecordingDisplay()
     assert isinstance(recorder, DisplaySystem), "_RecordingDisplay should conform to DisplaySystem"
     event: DisplayEvent = {"type": "result/delta", "sessionId": "sess-1"}
-    recorder.emit(event)
+    await recorder.emit(event)
     assert recorder.events == [event]
 
 
@@ -67,6 +79,19 @@ def test_display_event_type_discriminator() -> None:
     # Event with optional turnId
     event_with_turn: DisplayEvent = {"type": "tool/started", "sessionId": "sess-1", "turnId": "turn-42"}
     assert event_with_turn["turnId"] == "turn-42"
+
+
+def test_approval_system_request_signature_is_async_single_arg() -> None:
+    """ApprovalSystem.request must be async with a single non-self parameter named 'req'."""
+    import inspect
+
+    from amplifier_agent_lib.protocol_points.base import ApprovalSystem
+
+    assert inspect.iscoroutinefunction(ApprovalSystem.request)
+    sig = inspect.signature(ApprovalSystem.request)
+    params = [p for p in sig.parameters.values() if p.name != "self"]
+    assert len(params) == 1
+    assert params[0].name == "req"
 
 
 def test_no_spawn_protocol_exported() -> None:

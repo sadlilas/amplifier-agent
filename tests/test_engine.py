@@ -43,9 +43,9 @@ async def _echo_turn_handler(ctx: TurnContext) -> str:
     # Concrete notification types carry extra fields (e.g. 'text') beyond DisplayEvent base.
     # Suppress arg-type on the emit calls below — same pattern as test_protocol_points_defaults_cli.py.
     delta = {"type": "result/delta", "sessionId": ctx.session_id, "turnId": ctx.turn_id, "text": text}
-    ctx.display.emit(delta)  # type: ignore[arg-type]
+    await ctx.display.emit(delta)  # type: ignore[arg-type]
     final = {"type": "result/final", "sessionId": ctx.session_id, "turnId": ctx.turn_id, "text": text}
-    ctx.display.emit(final)  # type: ignore[arg-type]
+    await ctx.display.emit(final)  # type: ignore[arg-type]
     return text
 
 
@@ -266,3 +266,81 @@ async def test_engine_writes_only_via_injected_display(capsys: pytest.CaptureFix
     captured = capsys.readouterr()
     assert captured.out == "", f"Expected no stdout, got: {captured.out!r}"
     assert "[result/final]" in buf.getvalue(), f"Expected '[result/final]' in buf, got: {buf.getvalue()!r}"
+
+
+# ---------------------------------------------------------------------------
+# Test 10: boot propagates sessionId, resume, cwd, providerOverride
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_boot_propagates_session_id_and_resume_and_cwd() -> None:
+    """Engine.boot() with sessionId, resume, cwd, and providerOverride echoes sessionId/resumed.
+
+    Verifies that the engine correctly reads sessionId and resume from init_params
+    even when cwd and providerOverride are also present (as NotRequired fields).
+    Engine itself does not consume cwd/providerOverride — they are forwarded to the
+    bundle layer — but boot() must not crash when they are present.
+    """
+    from unittest.mock import MagicMock
+
+    async def _noop_handler(ctx: TurnContext) -> str:
+        return ""
+
+    buf = io.StringIO()
+    display = CliDisplaySystem(stream=buf, verbosity=DisplayVerbosity.VERBOSE)
+    approval = CliApprovalSystem(override=None, is_tty=False)
+    protocol_points: ProtocolPoints = {"approval": approval, "display": display}
+    engine = Engine(turn_handler=_noop_handler, protocol_points=protocol_points)
+
+    params = _boot_params(
+        sessionId="sess-xyz",
+        resume=True,
+        cwd="/tmp",
+        providerOverride="anthropic",
+    )
+    result = await engine.boot(params, bundle_override=MagicMock())
+
+    assert result["sessionState"]["sessionId"] == "sess-xyz"
+    assert result["sessionState"]["resumed"] is True
+
+
+# ---------------------------------------------------------------------------
+# Test SC-6: sessionId in turn/submit result envelope
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_submit_turn_result_includes_session_id() -> None:
+    """SC-6: TurnSubmitResult must carry sessionId in the final-reply envelope."""
+
+    async def _h(ctx: TurnContext) -> str:
+        return "the answer"
+
+    class _Display:
+        async def emit(self, event: object) -> None:
+            pass
+
+    class _Approval:
+        async def request(self, req: object) -> dict:
+            return {"action": "accept"}
+
+    from amplifier_agent_lib.protocol.methods import PROTOCOL_VERSION
+
+    engine = Engine(
+        turn_handler=_h,
+        protocol_points={"approval": _Approval(), "display": _Display()},  # type: ignore[arg-type]
+    )
+    await engine.boot(
+        {
+            "protocolVersion": PROTOCOL_VERSION,
+            "capabilities": {},
+            "sessionId": "sess-9",
+            "resume": False,
+        },
+        bundle_override=object(),  # type: ignore[arg-type]
+    )
+    result = await engine.submit_turn({"sessionId": "sess-9", "turnId": "turn-1", "prompt": "?"})
+    assert result["sessionId"] == "sess-9"
+    assert result["reply"] == "the answer"
+    assert result["turnId"] == "turn-1"

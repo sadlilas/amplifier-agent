@@ -186,6 +186,22 @@ def test_doctor_version_upgrade_no_contradictory_output(
     )
 
 
+def test_doctor_does_not_call_load_and_prepare_cached() -> None:
+    """doctor.py must NOT contain any reference to load_and_prepare_cached.
+
+    Per the admin verb split (Task 7), doctor is a pure diagnostic command.
+    It reports cache state via check_cache_state() but never primes the cache.
+    """
+    import inspect
+
+    from amplifier_agent_cli.admin import doctor as doctor_module
+
+    source = inspect.getsource(doctor_module)
+    assert "load_and_prepare_cached" not in source, (
+        "doctor.py must not call load_and_prepare_cached; cache priming belongs to the 'prepare' command."
+    )
+
+
 def test_doctor_bundle_cache_uses_structured_format(
     runner: CliRunner,
     writable_xdg: dict[str, str],

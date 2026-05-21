@@ -77,25 +77,8 @@ class TurnSubmitResult(TypedDict):
 
     reply: str | None
     turnId: str
+    sessionId: str  # SC-6
     finalEvent: NotRequired[dict[str, Any]]
-
-
-# ---------------------------------------------------------------------------
-# turn/cancel
-# ---------------------------------------------------------------------------
-
-
-class TurnCancelParams(TypedDict):
-    """Parameters for the ``turn/cancel`` JSON-RPC method."""
-
-    sessionId: str
-    turnId: str
-
-
-class TurnCancelResult(TypedDict):
-    """Result returned by the ``turn/cancel`` JSON-RPC method."""
-
-    cancelled: bool
 
 
 # ---------------------------------------------------------------------------

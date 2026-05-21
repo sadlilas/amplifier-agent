@@ -26,12 +26,10 @@ session:
       extended_thinking: true
 
   context:
-    module: context-simple
-    source: git+https://github.com/microsoft/amplifier-module-context-simple@main
+    module: context-persistent
+    source: git+https://github.com/microsoft/amplifier-module-context-persistent@main
     config:
       max_tokens: 300000
-      compact_threshold: 0.8
-      auto_compact: true
 
   provider:
     # NOTE: kept (intentional divergence from upstream build-up-foundation.yaml,

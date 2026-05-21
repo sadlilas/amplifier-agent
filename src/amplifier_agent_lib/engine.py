@@ -9,6 +9,7 @@ and the "Critical invariant" that this transport-free separation enables.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from amplifier_agent_lib import __version__
 from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
 from amplifier_agent_lib.protocol import (
+    PROTOCOL_VERSION,
     AgentShutdownResult,
     InitializeResult,
     TurnSubmitResult,
@@ -143,6 +145,25 @@ class Engine:
             assert self._init_result is not None
             return self._init_result
 
+        # SC-3: Strict-refuse protocol version skew (D6).
+        client_version = params.get("protocolVersion", "")
+        allow_skew = bool(params.get("allowProtocolSkew", False)) or bool(
+            os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")
+        )
+        if client_version and client_version != PROTOCOL_VERSION and not allow_skew:
+            from amplifier_agent_lib.protocol.errors import AaaError
+
+            raise AaaError(
+                code="protocol_version_mismatch",
+                message=(
+                    f"Protocol version mismatch: client requested {client_version!r}, "
+                    f"engine speaks {PROTOCOL_VERSION!r}. Remediation: reinstall both "
+                    f"wrapper and engine to compatible versions, or pass "
+                    f"--allow-protocol-skew (engine CLI flag) / "
+                    f"AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW=1 (env var) to override."
+                ),
+            )
+
         # Load the prepared bundle from the XDG cache, or use the injected override.
         self.session = bundle_override or await load_and_prepare_cached(aaa_version=__version__)
 
@@ -198,7 +219,7 @@ class Engine:
             display=self._protocol_points["display"],
         )
         reply = await self._turn_handler(ctx)
-        return TurnSubmitResult(reply=reply, turnId=params["turnId"])
+        return TurnSubmitResult(reply=reply, turnId=params["turnId"], sessionId=params["sessionId"])
 
     async def shutdown(self, _params: Any = None) -> AgentShutdownResult:
         """Shut down the engine.
