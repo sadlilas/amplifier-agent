@@ -17,6 +17,8 @@
  */
 
 import { synthesizeFinalIfMissing } from "./l14.js";
+import { makeApprovalHandler } from "./approval.js";
+import type { ApprovalAdapter } from "./approval.js";
 
 /** A display event yielded by SessionHandle.submit(). */
 export interface DisplayEvent {
@@ -59,6 +61,8 @@ export interface SessionDeps {
 export interface RpcLike {
   call(method: string, params?: unknown): Promise<unknown>;
   onNotification(cb: (notif: { method: string; params?: unknown }) => void): void;
+  /** Register a handler for a specific server-initiated request method. */
+  onRequest?(method: string, handler: (params: unknown) => Promise<unknown>): void;
 }
 
 /** One-shot session handle. */
@@ -68,7 +72,13 @@ export class SessionHandle {
   constructor(
     private readonly rpc: RpcLike,
     private readonly deps: SessionDeps,
-  ) {}
+    approval?: ApprovalAdapter,
+  ) {
+    // Wire the approval bridge if an adapter is supplied (§5.2).
+    if (approval && rpc.onRequest) {
+      rpc.onRequest("approval/request", makeApprovalHandler(approval));
+    }
+  }
 
   /**
    * Submit a prompt and return an AsyncIterable of DisplayEvents.

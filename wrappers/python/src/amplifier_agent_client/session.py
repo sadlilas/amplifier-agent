@@ -20,6 +20,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from amplifier_agent_client.approval import make_approval_handler
 from amplifier_agent_client.l14 import synthesize_final_if_missing
 
 
@@ -72,9 +73,11 @@ class SessionHandle:
     """One-shot session handle.
 
     Args:
-        rpc:        JSON-RPC client with call() and on_notification().
-        session_id: Session identifier for this handle.
-        terminate:  Callable that SIGTERMs the subprocess (D3).
+        rpc:                  JSON-RPC client with call() and on_notification().
+        session_id:           Session identifier for this handle.
+        terminate:            Callable that SIGTERMs the subprocess (D3).
+        approval_on_request:  Optional async callback for approval requests (§5.2).
+        approval_timeout_ms:  Timeout in ms for approval callback (default 30000).
     """
 
     def __init__(
@@ -82,11 +85,19 @@ class SessionHandle:
         rpc: Any,
         session_id: str,
         terminate: Callable[[], Any],
+        approval_on_request: Callable[..., Any] | None = None,
+        approval_timeout_ms: int = 30000,
     ) -> None:
         self._rpc = rpc
         self._session_id = session_id
         self._terminate = terminate
         self._submitted = False
+        # Wire the approval bridge if an adapter is supplied (§5.2).
+        if approval_on_request is not None:
+            rpc.on_request(
+                "approval/request",
+                make_approval_handler(on_request=approval_on_request, timeout_ms=approval_timeout_ms),
+            )
 
     def submit(self, prompt: str) -> AsyncIterator[DisplayEvent]:
         """Submit a prompt and return an AsyncIterator of DisplayEvents.
