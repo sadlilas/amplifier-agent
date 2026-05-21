@@ -17,10 +17,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-_REGEN_CMD = (
-    "uv run python -m amplifier_agent_lib.protocol._gen "
-    "--output-dir src/amplifier_agent_lib/protocol"
-)
+_REGEN_CMD = "uv run python -m amplifier_agent_lib.protocol._gen --output-dir src/amplifier_agent_lib/protocol"
 
 _PROTOCOL_DIR = Path(__file__).resolve().parent.parent / "src" / "amplifier_agent_lib" / "protocol"
 
@@ -38,9 +35,7 @@ def test_spec_md_is_up_to_date(tmp_path: Path) -> None:
     _generate_to(tmp_path)
     actual = (_PROTOCOL_DIR / "spec.md").read_text()
     expected = (tmp_path / "spec.md").read_text()
-    assert actual == expected, (
-        "spec.md is stale. Regenerate with:\n  " + _REGEN_CMD
-    )
+    assert actual == expected, "spec.md is stale. Regenerate with:\n  " + _REGEN_CMD
 
 
 @pytest.mark.parametrize(
@@ -52,9 +47,7 @@ def test_schema_is_up_to_date(tmp_path: Path, schema_name: str) -> None:
     _generate_to(tmp_path)
     actual = (_PROTOCOL_DIR / "schemas" / schema_name).read_text()
     expected = (tmp_path / "schemas" / schema_name).read_text()
-    assert actual == expected, (
-        f"{schema_name} is stale. Regenerate with:\n  " + _REGEN_CMD
-    )
+    assert actual == expected, f"{schema_name} is stale. Regenerate with:\n  " + _REGEN_CMD
 
 
 def test_no_extra_schemas_checked_in(tmp_path: Path) -> None:
@@ -63,6 +56,4 @@ def test_no_extra_schemas_checked_in(tmp_path: Path) -> None:
     actual = {p.name for p in (_PROTOCOL_DIR / "schemas").iterdir() if p.suffix == ".json"}
     expected = {p.name for p in (tmp_path / "schemas").iterdir() if p.suffix == ".json"}
     extras = actual - expected
-    assert not extras, (
-        f"Extra schema files checked in: {extras}. Delete them or regenerate."
-    )
+    assert not extras, f"Extra schema files checked in: {extras}. Delete them or regenerate."
