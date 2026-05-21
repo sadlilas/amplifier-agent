@@ -72,17 +72,32 @@ def test_load_fixture_rejects_unknown_assertion_kind(tmp_path: Path) -> None:
         load_fixture(p)
 
 
-@pytest.mark.parametrize(
-    "fixture_name",
-    ["l14_synthesis", "capability_negotiation"],
-)
-def test_authored_fixtures_load(fixture_name: str) -> None:
-    from amplifier_agent_lib.protocol.conformance.loader import load_fixture
-
+def _all_fixtures() -> list[Path]:
     base = (
         Path(__file__).resolve().parent.parent / "src" / "amplifier_agent_lib" / "protocol" / "conformance" / "fixtures"
     )
-    fixture = load_fixture(base / f"{fixture_name}.yaml")
+    return sorted(base.glob("*.yaml"))
+
+
+@pytest.mark.parametrize("fixture_path", _all_fixtures(), ids=lambda p: p.name)
+def test_every_fixture_loads_structurally(fixture_path: Path) -> None:
+    """Every YAML file under conformance/fixtures/ parses and structure-validates."""
+    from amplifier_agent_lib.protocol.conformance.loader import load_fixture
+
+    fixture = load_fixture(fixture_path)
     assert fixture.name
     assert fixture.script
     assert fixture.assertions
+
+
+def test_expected_fixture_set_is_complete() -> None:
+    """Exactly the five D7 contracts must be present — no more, no fewer."""
+    names = {p.stem for p in _all_fixtures()}
+    expected = {
+        "l14_synthesis",
+        "capability_negotiation",
+        "subagent_lineage",
+        "version_skew",
+        "resume_continuity",
+    }
+    assert names == expected, f"unexpected fixture set: {names ^ expected}"
