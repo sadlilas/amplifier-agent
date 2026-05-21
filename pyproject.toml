@@ -6,6 +6,7 @@ license = 'MIT'
 dependencies = [
     'click>=8.1',
     'amplifier-foundation',
+    'pyyaml>=6.0',
 ]
 
 [project.scripts]
