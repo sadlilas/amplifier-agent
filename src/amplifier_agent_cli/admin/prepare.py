@@ -23,7 +23,7 @@ def prepare() -> None:
     try:
         asyncio.run(load_and_prepare_cached(aaa_version=__version__))
     except Exception as exc:
-        click.echo(f"[ERROR] prepare failed: {exc}", err=False)
+        click.echo(f"[ERROR] prepare failed: {exc}", err=True)
         traceback.print_exc()
         sys.exit(1)
 

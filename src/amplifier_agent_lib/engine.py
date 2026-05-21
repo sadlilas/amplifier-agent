@@ -9,6 +9,7 @@ and the "Critical invariant" that this transport-free separation enables.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -147,7 +148,7 @@ class Engine:
         # SC-3: Strict-refuse protocol version skew (D6).
         client_version = params.get("protocolVersion", "")
         allow_skew = bool(params.get("allowProtocolSkew", False)) or bool(
-            __import__("os").environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")
+            os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")
         )
         if client_version and client_version != PROTOCOL_VERSION and not allow_skew:
             from amplifier_agent_lib.protocol.errors import AaaError
