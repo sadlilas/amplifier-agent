@@ -25,6 +25,8 @@ from typing import Any, NotRequired, Required, Union, get_args, get_origin, get_
 import click
 
 from amplifier_agent_lib.protocol.errors import ErrorCode
+from amplifier_agent_lib.protocol.methods import PROTOCOL_VERSION
+from amplifier_agent_lib.protocol.notifications import CANONICAL_DISPLAY_EVENTS
 
 # ---------------------------------------------------------------------------
 # JSON Schema type-mapping helpers
@@ -169,6 +171,92 @@ def _write_error_codes_schema(schemas_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# spec.md renderer
+# ---------------------------------------------------------------------------
+
+_RPC_GROUPS: tuple[tuple[str, str, str], ...] = (
+    # (rpc_name, ParamsType, ResultType)
+    ("initialize", "InitializeParams", "InitializeResult"),
+    ("turn/submit", "TurnSubmitParams", "TurnSubmitResult"),
+    ("session/create", "SessionCreateParams", "SessionCreateResult"),
+    ("session/end", "SessionEndParams", "SessionEndResult"),
+    ("agent/shutdown", "AgentShutdownParams", "AgentShutdownResult"),
+    ("cache/info", "CacheInfoParams", "CacheInfoResult"),
+)
+
+
+def _render_spec_md(typed_dicts: list[type]) -> str:
+    """Render a human-readable Markdown reference document from the protocol TypedDicts."""
+    td_by_name = {td.__name__: td for td in typed_dicts}
+    notification_tds = [td for td in typed_dicts if td.__name__.endswith("Notification")]
+    capability_tds = [td for td in typed_dicts if td.__module__ == "amplifier_agent_lib.protocol.capabilities"]
+
+    lines: list[str] = []
+    lines.append("<!-- GENERATED FILE — DO NOT HAND-EDIT.")
+    lines.append("     Regenerate with:")
+    lines.append("       uv run python -m amplifier_agent_lib.protocol._gen \\")
+    lines.append("           --output-dir src/amplifier_agent_lib/protocol")
+    lines.append("-->")
+    lines.append("")
+    lines.append("# Amplifier Agent — Wire Spec")
+    lines.append("")
+    lines.append(f"**Protocol version:** `{PROTOCOL_VERSION}`")
+    lines.append("")
+    lines.append("**Framing:** JSON-RPC 2.0 over NDJSON over stdio. ")
+    lines.append("Stdout carries frames only; stderr is free-form log output.")
+    lines.append("")
+
+    # Methods
+    lines.append("## Methods")
+    lines.append("")
+    lines.append("| RPC | Params | Result |")
+    lines.append("|---|---|---|")
+    for rpc, params, result in _RPC_GROUPS:
+        params_link = f"[`{params}`](schemas/{params}.schema.json)" if params in td_by_name else f"`{params}`"
+        result_link = f"[`{result}`](schemas/{result}.schema.json)" if result in td_by_name else f"`{result}`"
+        lines.append(f"| `{rpc}` | {params_link} | {result_link} |")
+    lines.append("")
+
+    # Notifications
+    lines.append("## Notifications")
+    lines.append("")
+    lines.append("Canonical display event taxonomy (engine → client):")
+    lines.append("")
+    for event_name in CANONICAL_DISPLAY_EVENTS:
+        lines.append(f"- `{event_name}`")
+    lines.append("")
+    lines.append("Notification payload schemas:")
+    lines.append("")
+    lines.append("| TypedDict | Schema |")
+    lines.append("|---|---|")
+    for td in notification_tds:
+        lines.append(f"| `{td.__name__}` | [`schemas/{td.__name__}.schema.json`](schemas/{td.__name__}.schema.json) |")
+    lines.append("")
+
+    # Errors
+    lines.append("## Errors")
+    lines.append("")
+    lines.append("See [`schemas/error_codes.schema.json`](schemas/error_codes.schema.json) for the authoritative enum.")
+    lines.append("")
+    lines.append("| Code | Wire value |")
+    lines.append("|---|---|")
+    for ec in sorted(ErrorCode, key=lambda e: e.value):
+        lines.append(f"| `{ec.name}` | `{ec.value}` |")
+    lines.append("")
+
+    # Capabilities
+    lines.append("## Capabilities")
+    lines.append("")
+    lines.append("| TypedDict | Schema |")
+    lines.append("|---|---|")
+    for td in capability_tds:
+        lines.append(f"| `{td.__name__}` | [`schemas/{td.__name__}.schema.json`](schemas/{td.__name__}.schema.json) |")
+    lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -194,6 +282,9 @@ def main(output_dir: Path) -> None:
         path.write_text(json.dumps(schema, indent=2) + "\n")
 
     _write_error_codes_schema(schemas_dir)
+
+    (output_dir / "spec.md").write_text(_render_spec_md(typed_dicts))
+    click.echo(f"[gen] wrote spec.md to {output_dir}")
 
     click.echo(f"[gen] wrote {len(typed_dicts)} schemas + error_codes.schema.json to {schemas_dir}")
 

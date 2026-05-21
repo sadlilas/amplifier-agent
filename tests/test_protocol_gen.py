@@ -98,3 +98,20 @@ def test_gen_error_codes_schema_is_string_enum(tmp_path: Path) -> None:
     schema = json.loads((tmp_path / "schemas" / "error_codes.schema.json").read_text())
     assert schema["type"] == "string"
     assert set(schema["enum"]) == {ec.value for ec in ErrorCode}
+
+
+def test_gen_emits_spec_md_with_required_sections(tmp_path: Path) -> None:
+    """spec.md contains all required top-level sections and the DO NOT EDIT banner."""
+    from amplifier_agent_lib.protocol._gen import main
+
+    runner = CliRunner()
+    runner.invoke(main, ["--output-dir", str(tmp_path)])
+
+    spec = (tmp_path / "spec.md").read_text()
+    assert "DO NOT HAND-EDIT" in spec
+    assert "2026-05-aaa-v0" in spec, "PROTOCOL_VERSION must appear"
+    for required_section in ("## Methods", "## Notifications", "## Errors", "## Capabilities"):
+        assert required_section in spec, f"missing section: {required_section}"
+    # Schema links must point at the schemas/ subdir
+    assert "schemas/InitializeParams.schema.json" in spec
+    assert "schemas/error_codes.schema.json" in spec
