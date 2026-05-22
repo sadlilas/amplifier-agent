@@ -6,7 +6,7 @@
 
 # Amplifier Agent — Wire Spec
 
-**Protocol version:** `2026-05-aaa-v0`
+**Protocol version:** `0.1.0`
 
 **Framing:** JSON-RPC 2.0 over NDJSON over stdio. 
 Stdout carries frames only; stderr is free-form log output.

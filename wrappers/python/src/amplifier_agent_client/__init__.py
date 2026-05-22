@@ -41,7 +41,7 @@ from amplifier_agent_client.version import (
 
 #: The protocol version that this Python wrapper requires.
 #: Must match the version string shipped by `amplifier-agent` (amplifier_agent_lib).
-PROTOCOL_VERSION_REQUIRED_BY_WRAPPER = "2026-05-aaa-v0"
+PROTOCOL_VERSION_REQUIRED_BY_WRAPPER = "0.1.0"
 
 __all__ = [
     "PROTOCOL_VERSION_REQUIRED_BY_WRAPPER",

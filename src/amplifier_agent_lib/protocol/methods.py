@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, NotRequired, TypedDict
 
-PROTOCOL_VERSION = "2026-05-aaa-v0"
+PROTOCOL_VERSION = "0.1.0"
 """Wire protocol version. Bump on breaking changes; semver applies."""
 
 

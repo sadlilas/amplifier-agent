@@ -3,7 +3,7 @@
  *
  * TDD bullets:
  * (a) spawnAgent() with FakeTransport returns SessionHandle whose
- *     getEngineInfo() returns protocolVersion='2026-05-aaa-v0' and
+ *     getEngineInfo() returns protocolVersion='0.1.0' and
  *     binaryPath='/dev/null'
  * (b) spawnAgent() throws AaaError(lifecycle_unsupported) when lifecycle
  *     is not 'one-shot' (D10)
@@ -64,14 +64,14 @@ describe("spawnAgent", () => {
         _binaryResolver: () => "/dev/null",
         _versionProbe: (_binPath: string, _env: Record<string, string>) => ({
           version: "1.2.3",
-          protocolVersion: "2026-05-aaa-v0",
+          protocolVersion: "0.1.0",
           bundleDigest: "deadbeef",
         }),
         _transportFactory: () => new FakeTransport(),
       });
 
       const info = handle.getEngineInfo();
-      expect(info.protocolVersion).toBe("2026-05-aaa-v0");
+      expect(info.protocolVersion).toBe("0.1.0");
       expect(info.binaryPath).toBe("/dev/null");
     },
     5000,

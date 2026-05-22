@@ -2,7 +2,7 @@
 
 TDD bullets:
 (a) spawn_agent() with FakeTransport returns SessionHandle whose
-    get_engine_info() returns protocol_version='2026-05-aaa-v0' and
+    get_engine_info() returns protocol_version='0.1.0' and
     binary_path='/dev/null'
 (b) spawn_agent() raises AaaError(lifecycle_unsupported) when lifecycle
     is not 'one-shot' (D10)
@@ -61,7 +61,7 @@ class FakeTransport:
 @pytest.mark.asyncio
 async def test_spawn_agent_returns_handle_with_engine_info() -> None:
     """(a) spawn_agent() returns SessionHandle with get_engine_info() returning
-    protocol_version='2026-05-aaa-v0' and binary_path='/dev/null'.
+    protocol_version='0.1.0' and binary_path='/dev/null'.
     """
     handle = await spawn_agent(
         lifecycle="one-shot",
@@ -69,7 +69,7 @@ async def test_spawn_agent_returns_handle_with_engine_info() -> None:
         _binary_resolver=lambda: "/dev/null",
         _version_probe=lambda *_args, **_kwargs: {
             "version": "1.2.3",
-            "protocolVersion": "2026-05-aaa-v0",
+            "protocolVersion": "0.1.0",
             "bundleDigest": "deadbeef",
         },
         _transport_factory=lambda: FakeTransport(),
@@ -77,7 +77,7 @@ async def test_spawn_agent_returns_handle_with_engine_info() -> None:
 
     assert isinstance(handle, SessionHandle)
     info = handle.get_engine_info()
-    assert info["protocol_version"] == "2026-05-aaa-v0"
+    assert info["protocol_version"] == "0.1.0"
     assert info["binary_path"] == "/dev/null"
 
 
