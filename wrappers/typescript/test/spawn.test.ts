@@ -7,6 +7,26 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { resolveBinaryPath, buildEnv, DEFAULT_ALLOWLIST } from "../src/spawn.js";
+import { AaaError } from "../src/session.js";
+
+describe("AaaError v0.1.0 fields", () => {
+  it("accepts classification and severity via opts", () => {
+    const err = new AaaError("approval_timeout", "timed out", {
+      classification: "approval",
+      severity: "error",
+    });
+    expect(err.code).toBe("approval_timeout");
+    expect(err.classification).toBe("approval");
+    expect(err.severity).toBe("error");
+  });
+
+  it("leaves classification/severity/correlationId undefined when opts not provided", () => {
+    const err = new AaaError("internal", "oops");
+    expect(err.classification).toBeUndefined();
+    expect(err.severity).toBeUndefined();
+    expect(err.correlationId).toBeUndefined();
+  });
+});
 
 describe("resolveBinaryPath", () => {
   it("returns AMPLIFIER_AGENT_BIN value when env var is set (and path exists)", () => {

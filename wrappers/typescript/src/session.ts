@@ -40,12 +40,31 @@ export interface DisplayEvent {
 export class AaaError extends Error {
   code: string;
   remediation?: string;
+  classification?: "transport" | "protocol" | "engine" | "approval" | "unknown";
+  severity?: "error" | "warning";
+  correlationId?: string;
+  stderrTail?: string;
 
-  constructor(code: string, remediation?: string) {
+  constructor(
+    code: string,
+    remediation?: string,
+    opts?: {
+      classification?: AaaError["classification"];
+      severity?: AaaError["severity"];
+      correlationId?: string;
+      stderrTail?: string;
+    },
+  ) {
     super(remediation ?? code);
     this.code = code;
     this.remediation = remediation;
     this.name = "AaaError";
+    if (opts) {
+      this.classification = opts.classification;
+      this.severity = opts.severity;
+      this.correlationId = opts.correlationId;
+      this.stderrTail = opts.stderrTail;
+    }
   }
 }
 
