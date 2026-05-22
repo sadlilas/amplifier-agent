@@ -363,9 +363,7 @@ async def test_runtime_registers_incremental_save_hook(tmp_path, monkeypatch) ->
     captured_registrations: list[dict[str, Any]] = []
 
     def fake_register(event: str, handler_fn: Any, *, name: str = "") -> None:
-        captured_registrations.append(
-            {"event_name": event, "handler": handler_fn, "name": name}
-        )
+        captured_registrations.append({"event_name": event, "handler": handler_fn, "name": name})
 
     set_messages_mock = AsyncMock()
     get_messages_mock = AsyncMock(return_value=[])
@@ -397,11 +395,63 @@ async def test_runtime_registers_incremental_save_hook(tmp_path, monkeypatch) ->
     await handler(_ctx(session_id="sess-save-test"))
 
     incremental = [
-        r
-        for r in captured_registrations
-        if r["event_name"] == "tool:post" and "incremental_save" in r["name"]
+        r for r in captured_registrations if r["event_name"] == "tool:post" and "incremental_save" in r["name"]
     ]
     assert len(incremental) >= 1, (
         "Expected at least one 'tool:post' registration with 'incremental_save' "
         f"in the name; got: {captured_registrations}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 10: Handler registers WireApprovalProvider as approval.request capability
+#          (A3 — CR-2, Design §4.8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_runtime_registers_wire_approval_provider(tmp_path, monkeypatch) -> None:
+    """The capability registered under 'approval.request' must be a bound
+    method of a :class:`WireApprovalProvider` instance — not the raw
+    ``ctx.approval.request`` callable.  Per design §4.8 (A3 — CR-2)."""
+    import amplifier_agent_lib._runtime as runtime_mod
+    from amplifier_agent_lib.wire_approval_provider import WireApprovalProvider
+
+    monkeypatch.setattr(runtime_mod, "state_root", lambda: tmp_path)
+
+    captured: dict[str, Any] = {}
+
+    def capture(name: str, fn: Any) -> None:
+        captured[name] = fn
+
+    coordinator = MagicMock()
+    coordinator.register_capability.side_effect = capture
+    coordinator.get_capability.return_value = None
+
+    execute_mock = AsyncMock(return_value="reply")
+    session_mock = MagicMock()
+    session_mock.execute = execute_mock
+    session_mock.coordinator = coordinator
+
+    async def _fake_create_session(**kwargs: Any) -> MagicMock:
+        return session_mock
+
+    prepared = MagicMock()
+    prepared.create_session = _fake_create_session
+    prepared.mount_plan = {"agents": {}}
+
+    handler = make_turn_handler(prepared, cwd=None, is_resumed=False)
+    await handler(_ctx())
+
+    registered_approval_capability = captured.get("approval.request")
+    assert registered_approval_capability is not None, (
+        f"Expected 'approval.request' to be registered; got: {list(captured)}"
+    )
+    assert hasattr(registered_approval_capability, "__self__"), (
+        "Expected registered approval capability to be a bound method "
+        f"(have __self__); got: {registered_approval_capability!r}"
+    )
+    assert isinstance(registered_approval_capability.__self__, WireApprovalProvider), (
+        "Expected bound method's __self__ to be a WireApprovalProvider; "
+        f"got: {type(registered_approval_capability.__self__).__name__}"
     )

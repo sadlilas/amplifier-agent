@@ -13,6 +13,7 @@ from amplifier_agent_lib.engine import TurnContext, TurnHandler
 from amplifier_agent_lib.incremental_save import IncrementalSaveHook
 from amplifier_agent_lib.persistence import state_root
 from amplifier_agent_lib.session_store import SessionStore
+from amplifier_agent_lib.wire_approval_provider import WireApprovalProvider
 
 if TYPE_CHECKING:
     from amplifier_foundation.bundle._prepared import PreparedBundle
@@ -93,7 +94,8 @@ def make_turn_handler(
             turn_id=ctx.turn_id,
         )
         session.coordinator.register_capability("display.emit", ctx.display.emit)
-        session.coordinator.register_capability("approval.request", ctx.approval.request)
+        wire_approval_provider = WireApprovalProvider(approval_request_fn=ctx.approval.request)
+        session.coordinator.register_capability("approval.request", wire_approval_provider.request_approval)
 
         # Mount the vendored streaming hook programmatically.  It lives inside this
         # wheel rather than at a git URL, so we bypass foundation's URI resolver
@@ -122,9 +124,7 @@ def make_turn_handler(
                     session_id=session_id,
                     get_messages=get_messages,
                 )
-                session.coordinator.hooks.register(
-                    "tool:post", save_hook, name="incremental_save"
-                )
+                session.coordinator.hooks.register("tool:post", save_hook, name="incremental_save")
 
         # Register session.spawn on the coordinator so the delegate tool can
         # spawn child sessions.  Per KERNEL_PHILOSOPHY, this is app-layer
