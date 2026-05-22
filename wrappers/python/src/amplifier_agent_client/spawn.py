@@ -22,6 +22,26 @@ DEFAULT_ALLOWLIST: list[str] = [
     "TMPDIR",
 ]
 
+#: Environment variable names that callers MUST NOT inject via ``env.extra``.
+#:
+#: These names are well-known dynamic-loader / interpreter hooks that can
+#: hijack subprocess execution (preload libraries, prepend import paths,
+#: override startup files).  Per design §4.12.1, the wrapper rejects any
+#: ``env.extra`` entry whose key appears in this set.
+BLOCKED_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "PYTHONPATH",
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "PYTHONSTARTUP",
+        "PATH",
+        "PYTHONHOME",
+        "PYTHONNOUSERSITE",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+    }
+)
+
 
 def resolve_binary_path(
     env: dict[str, str] | None = None,
@@ -80,7 +100,27 @@ def build_env(
 
     Returns:
         Filtered environment dict safe to pass to ``subprocess``.
+
+    Raises:
+        AaaError: With ``code='env_injection_rejected'`` if ``extra`` contains
+                  any key in :data:`BLOCKED_ENV_KEYS` (design §4.12.1).
     """
+    # A6 SC-3 — design §4.12.1: reject dynamic-loader / interpreter hooks
+    # in env.extra before building the merged environment.
+    if extra:
+        for key in extra:
+            if key in BLOCKED_ENV_KEYS:
+                # Lazy import to avoid circular dependency between spawn and session.
+                from amplifier_agent_client.session import AaaError
+
+                raise AaaError(
+                    "env_injection_rejected",
+                    f"env.extra key {key!r} is blocked for security reasons "
+                    "(design §4.12.1). Remove it from env.extra.",
+                    classification="protocol",
+                    severity="error",
+                )
+
     allow_set = set(allowlist)
     result: dict[str, str] = {}
 
