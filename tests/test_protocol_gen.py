@@ -78,6 +78,9 @@ def test_gen_emits_schema_for_every_typeddict(tmp_path: Path) -> None:
         "ApprovalRequestNotification.schema.json",
         "ClientCapabilities.schema.json",
         "ServerCapabilities.schema.json",
+        "McpServerConfig.schema.json",
+        "HostCapabilities.schema.json",
+        "InitializeHostParams.schema.json",
         "error_codes.schema.json",
     }
     actual = {p.name for p in schemas_dir.iterdir()}

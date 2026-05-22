@@ -99,6 +99,24 @@ export interface ErrorNotification {
 }
 
 /**
+ * Capabilities advertised by the host to the agent (design §4.10.1).
+ */
+export interface HostCapabilities {
+  supports_steering?: boolean;
+  supports_structured_errors?: boolean;
+}
+
+/**
+ * ``initialize.params.host`` envelope for host-side capability advertisement.
+ */
+export interface InitializeHostParams {
+  capabilities?: HostCapabilities;
+}
+/**
+ * Capabilities advertised by the host to the agent (design §4.10.1).
+ */
+
+/**
  * Parameters for the ``initialize`` JSON-RPC method.
  */
 export interface InitializeParams {
@@ -111,9 +129,34 @@ export interface InitializeParams {
   resume?: boolean;
   providerOverride?: string;
   cwd?: string;
+  mcpServers?: {
+    [k: string]: McpServerConfig;
+  };
+  host?: InitializeHostParams;
 }
 /**
  * Identity of the connecting client.
+ */
+/**
+ * Per-server MCP configuration passed via ``initialize.params.mcpServers``.
+ */
+export interface McpServerConfig {
+  transport: string;
+  command?: string;
+  args?: string[];
+  env?: {
+    [k: string]: string;
+  };
+  url?: string;
+  headers?: {
+    [k: string]: string;
+  };
+}
+/**
+ * ``initialize.params.host`` envelope for host-side capability advertisement.
+ */
+/**
+ * Capabilities advertised by the host to the agent (design §4.10.1).
  */
 
 /**
@@ -140,6 +183,10 @@ export interface SessionState {
   sessionId: string;
   resumed: boolean;
 }
+
+/**
+ * Per-server MCP configuration passed via ``initialize.params.mcpServers``.
+ */
 
 /**
  * Arbitrary progress update.  ``percent`` is optional (0-100).

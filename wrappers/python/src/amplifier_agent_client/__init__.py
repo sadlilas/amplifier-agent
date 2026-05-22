@@ -117,6 +117,8 @@ async def spawn_agent(
     approval: dict[str, Any] | None = None,
     display: dict[str, Any] | None = None,
     allow_protocol_skew: bool = False,
+    mcp_servers: dict[str, dict[str, Any]] | None = None,
+    host: dict[str, Any] | None = None,
     # Test-only injection points (undocumented in public API).
     _transport_factory: Callable[[], Any] | None = None,
     _version_probe: Callable[..., dict[str, Any]] | None = None,
@@ -212,18 +214,21 @@ async def spawn_agent(
     if display:
         capabilities["display"] = {"events": ["*"]}
 
-    init_result: dict[str, Any] = await rpc.call(
-        "agent/initialize",
-        {
-            "protocolVersion": PROTOCOL_VERSION_REQUIRED_BY_WRAPPER,
-            "clientInfo": {"name": "amplifier-agent-client-py", "version": "0.0.0"},
-            "capabilities": capabilities,
-            "sessionId": session_id,
-            "resume": resume,
-            "cwd": cwd,
-            "providerOverride": provider_override,
-        },
-    )
+    init_params: dict[str, Any] = {
+        "protocolVersion": PROTOCOL_VERSION_REQUIRED_BY_WRAPPER,
+        "clientInfo": {"name": "amplifier-agent-client-py", "version": "0.0.0"},
+        "capabilities": capabilities,
+        "sessionId": session_id,
+        "resume": resume,
+        "cwd": cwd,
+        "providerOverride": provider_override,
+    }
+    if mcp_servers is not None:
+        init_params["mcpServers"] = mcp_servers
+    if host is not None:
+        init_params["host"] = host
+
+    init_result: dict[str, Any] = await rpc.call("agent/initialize", init_params)
 
     effective_session_id: str = init_result["sessionState"]["sessionId"]
 

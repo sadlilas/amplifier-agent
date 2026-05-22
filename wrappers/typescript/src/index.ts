@@ -28,6 +28,10 @@ import {
 } from "./spawn.js";
 import type { EngineVersionPayload } from "./spawn.js";
 import { checkProtocolVersion } from "./version.js";
+import type { McpServerConfig, HostCapabilities } from "./types.js";
+
+// Re-export the MCP/host wire types for callers who construct SpawnAgentParams.
+export type { McpServerConfig, HostCapabilities } from "./types.js";
 
 /**
  * The protocol version that this TypeScript wrapper requires.
@@ -59,6 +63,10 @@ export interface SpawnAgentParams {
   };
   /** Default false; opt out of D6 strict-refuse version check. */
   allowProtocolSkew?: boolean;
+  /** Optional MCP servers to forward via initialize.params.mcpServers (A1). */
+  mcpServers?: Record<string, McpServerConfig>;
+  /** Optional host envelope forwarded via initialize.params.host (A1). */
+  host?: { capabilities?: HostCapabilities };
 
   // ------------------------------------------------------------------
   // Test-only injection points (undocumented in public API).
