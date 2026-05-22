@@ -84,3 +84,46 @@ describe("buildEnv", () => {
     expect(result["LC_CTYPE"]).toBe("UTF-8");
   });
 });
+
+describe("BLOCKED_ENV_KEYS validation (SC-3)", () => {
+  it("throws AaaError(env_injection_rejected) when PYTHONPATH is in extra", () => {
+    expect(() =>
+      buildEnv({
+        processEnv: { PATH: "/usr/bin" },
+        allowlist: DEFAULT_ALLOWLIST,
+        extra: { PYTHONPATH: "/evil" },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "env_injection_rejected",
+        classification: "protocol",
+        severity: "error",
+      }),
+    );
+  });
+
+  it("throws AaaError(env_injection_rejected) when LD_PRELOAD is in extra", () => {
+    expect(() =>
+      buildEnv({
+        processEnv: { PATH: "/usr/bin" },
+        allowlist: DEFAULT_ALLOWLIST,
+        extra: { LD_PRELOAD: "/evil.so" },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "env_injection_rejected",
+        classification: "protocol",
+        severity: "error",
+      }),
+    );
+  });
+
+  it("does NOT throw for safe extra keys", () => {
+    const result = buildEnv({
+      processEnv: { PATH: "/usr/bin" },
+      allowlist: DEFAULT_ALLOWLIST,
+      extra: { CUSTOM_SAFE: "ok" },
+    });
+    expect(result["CUSTOM_SAFE"]).toBe("ok");
+  });
+});
