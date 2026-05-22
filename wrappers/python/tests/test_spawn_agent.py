@@ -63,15 +63,19 @@ async def test_spawn_agent_returns_handle_with_engine_info() -> None:
     """(a) spawn_agent() returns SessionHandle with get_engine_info() returning
     protocol_version='0.1.0' and binary_path='/dev/null'.
     """
+
+    async def _fake_version_probe(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "version": "1.2.3",
+            "protocolVersion": "0.1.0",
+            "bundleDigest": "deadbeef",
+        }
+
     handle = await spawn_agent(
         lifecycle="one-shot",
         session_id="test-session",
         _binary_resolver=lambda: "/dev/null",
-        _version_probe=lambda *_args, **_kwargs: {
-            "version": "1.2.3",
-            "protocolVersion": "0.1.0",
-            "bundleDigest": "deadbeef",
-        },
+        _version_probe=_fake_version_probe,
         _transport_factory=lambda: FakeTransport(),
     )
 

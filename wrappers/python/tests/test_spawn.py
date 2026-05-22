@@ -92,3 +92,18 @@ def test_build_env_allows_non_blocked_extras() -> None:
         extra={"CUSTOM_SAFE_VAR": "value"},
     )
     assert result["CUSTOM_SAFE_VAR"] == "value"
+
+
+def test_probe_engine_version_is_async() -> None:
+    """probe_engine_version must be a coroutine function (A6 SC-7, design §4.12.2).
+
+    The wrapper's version probe must be async to avoid blocking the event loop
+    while waiting on `amplifier-agent version --json`.
+    """
+    import asyncio
+
+    from amplifier_agent_client.spawn import probe_engine_version
+
+    assert asyncio.iscoroutinefunction(probe_engine_version), (
+        "probe_engine_version must be async (SC-7). Change def to async def."
+    )

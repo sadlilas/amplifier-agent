@@ -7,9 +7,9 @@ probe_engine_version() — run `amplifier-agent version --json` and parse result
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
-import subprocess
 from typing import Any
 
 #: Variables always passed through to subprocess (exact name match).
@@ -134,12 +134,15 @@ def build_env(
     return result
 
 
-def probe_engine_version(
+async def probe_engine_version(
     bin_path: str,
     env: dict[str, str],
     timeout: int = 5,
 ) -> dict[str, Any]:
     """Run ``<bin_path> version --json`` and return the parsed JSON payload.
+
+    Async (A6 SC-7, design §4.12.2): uses ``asyncio.create_subprocess_exec`` so
+    the version probe does not block the event loop.
 
     Args:
         bin_path: Absolute path to the amplifier-agent binary.
@@ -150,16 +153,26 @@ def probe_engine_version(
         Parsed JSON dict with at least ``version`` and ``protocolVersion`` keys.
 
     Raises:
-        subprocess.CalledProcessError: If the process exits non-zero.
-        subprocess.TimeoutExpired:     If the process exceeds the timeout.
-        json.JSONDecodeError:          If stdout is not valid JSON.
+        asyncio.TimeoutError: If the process exceeds the timeout.
+        RuntimeError:         If the process exits non-zero.
+        json.JSONDecodeError: If stdout is not valid JSON.
     """
-    result = subprocess.run(
-        [bin_path, "version", "--json"],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
+    proc = await asyncio.create_subprocess_exec(
+        bin_path,
+        "version",
+        "--json",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
         env=env,
-        check=True,
     )
-    return json.loads(result.stdout.strip())  # type: ignore[no-any-return]
+    try:
+        stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"amplifier-agent version --json exited with code {proc.returncode}")
+
+    return json.loads(stdout_bytes.decode().strip())  # type: ignore[no-any-return]

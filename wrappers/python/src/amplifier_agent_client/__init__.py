@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 from amplifier_agent_client.jsonrpc import JsonRpcClient
@@ -121,7 +121,7 @@ async def spawn_agent(
     host: dict[str, Any] | None = None,
     # Test-only injection points (undocumented in public API).
     _transport_factory: Callable[[], Any] | None = None,
-    _version_probe: Callable[..., dict[str, Any]] | None = None,
+    _version_probe: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     _binary_resolver: Callable[[], str] | None = None,
 ) -> SessionHandle:
     """Compose all internal components into the single public entry point.
@@ -174,11 +174,11 @@ async def spawn_agent(
         extra=extra,
     )
 
-    # 4. Probe engine version.
+    # 4. Probe engine version (A6 SC-7 — async).
     if _version_probe is not None:
-        version_payload = _version_probe(binary_path, subprocess_env)
+        version_payload = await _version_probe(binary_path, subprocess_env)
     else:
-        version_payload = probe_engine_version(binary_path, subprocess_env)
+        version_payload = await probe_engine_version(binary_path, subprocess_env)
 
     # 5. Check protocol version (D6 strict-refuse).
     allow_skew = allow_protocol_skew or os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW") == "1"
