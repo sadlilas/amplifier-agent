@@ -1,7 +1,7 @@
 ---
 bundle:
   name: amplifier-agent-builtin
-  version: 1.2.0
+  version: 1.2.1
   description: >
     Vendored opinionated manifest for the amplifier-agent CLI. Aligned with the
     upstream build-up-foundation experimental bundle
@@ -121,7 +121,7 @@ hooks:
       initial_trigger_turn: 2
       update_interval_turns: 5
   - module: hooks-approval
-    source: git+https://github.com/microsoft/amplifier-module-hooks-approval@v0.1.0
+    source: git+https://github.com/microsoft/amplifier-module-hooks-approval@main
 
 # The four self-sufficient sub-session agents this bundle ships.
 # Definitions are vendored at src/amplifier_agent_lib/bundle/agents/<name>.md;
