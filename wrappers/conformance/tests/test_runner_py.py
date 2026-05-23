@@ -42,3 +42,11 @@ async def test_initialize_with_mcpservers() -> None:
 
     report = await run_fixture(FIXTURES_DIR / "initialize-with-mcpservers.yaml")
     assert report["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_initialize_with_host_capabilities() -> None:
+    from runner_py import run_fixture
+
+    report = await run_fixture(FIXTURES_DIR / "initialize-with-host-capabilities.yaml")
+    assert report["passed"] is True
