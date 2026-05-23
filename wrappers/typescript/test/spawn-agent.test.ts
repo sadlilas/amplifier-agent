@@ -62,7 +62,10 @@ describe("spawnAgent", () => {
         lifecycle: "one-shot",
         sessionId: "test-session",
         _binaryResolver: () => "/dev/null",
-        _versionProbe: (_binPath: string, _env: Record<string, string>) => ({
+        _versionProbe: async (
+          _binPath: string,
+          _env: Record<string, string>,
+        ) => ({
           version: "1.2.3",
           protocolVersion: "0.1.0",
           bundleDigest: "deadbeef",

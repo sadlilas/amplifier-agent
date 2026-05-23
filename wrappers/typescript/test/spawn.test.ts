@@ -6,7 +6,12 @@
  * - buildEnv drops disallowed variables and merges extras over allowlist
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { resolveBinaryPath, buildEnv, DEFAULT_ALLOWLIST } from "../src/spawn.js";
+import {
+  resolveBinaryPath,
+  buildEnv,
+  probeEngineVersion,
+  DEFAULT_ALLOWLIST,
+} from "../src/spawn.js";
 import { AaaError } from "../src/session.js";
 
 describe("AaaError v0.1.0 fields", () => {
@@ -82,6 +87,14 @@ describe("buildEnv", () => {
     const result = buildEnv({ processEnv, allowlist: DEFAULT_ALLOWLIST });
     expect(result["LC_ALL"]).toBe("en_US.UTF-8");
     expect(result["LC_CTYPE"]).toBe("UTF-8");
+  });
+});
+
+describe("probeEngineVersion (SC-7)", () => {
+  it("probeEngineVersion is an async function returning a Promise", async () => {
+    const result = probeEngineVersion("/nonexistent-binary", {});
+    expect(result).toBeInstanceOf(Promise);
+    await result.catch(() => {});
   });
 });
 

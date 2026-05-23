@@ -6,10 +6,13 @@
  * probeEngineVersion() — run `amplifier-agent version --json` and parse result
  */
 
-import { execFileSync, execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { promisify } from "node:util";
 
 import { AaaError } from "./session.js";
+
+const execFileAsync = promisify(execFile);
 
 /** Variables always passed through to subprocess (exact name match). */
 export const DEFAULT_ALLOWLIST: string[] = [
@@ -150,12 +153,12 @@ export interface EngineVersionPayload {
  * @param env       Environment to pass to the subprocess.
  * @param timeoutMs Timeout in milliseconds (default: 5000).
  */
-export function probeEngineVersion(
+export async function probeEngineVersion(
   binPath: string,
   env: Record<string, string>,
   timeoutMs = 5000,
-): EngineVersionPayload {
-  const stdout = execFileSync(binPath, ["version", "--json"], {
+): Promise<EngineVersionPayload> {
+  const { stdout } = await execFileAsync(binPath, ["version", "--json"], {
     encoding: "utf-8",
     timeout: timeoutMs,
     env,

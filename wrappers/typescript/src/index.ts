@@ -77,7 +77,7 @@ export interface SpawnAgentParams {
   _versionProbe?: (
     binPath: string,
     env: Record<string, string>,
-  ) => EngineVersionPayload;
+  ) => Promise<EngineVersionPayload>;
   /** Replaces the real resolveBinaryPath() call. */
   _binaryResolver?: () => string;
 }
@@ -149,9 +149,9 @@ export async function spawnAgent(params: SpawnAgentParams): Promise<SessionHandl
   // 4. Probe engine version.
   let versionPayload: EngineVersionPayload;
   if (params._versionProbe) {
-    versionPayload = params._versionProbe(binaryPath, subprocessEnv);
+    versionPayload = await params._versionProbe(binaryPath, subprocessEnv);
   } else {
-    versionPayload = probeEngineVersion(binaryPath, subprocessEnv);
+    versionPayload = await probeEngineVersion(binaryPath, subprocessEnv);
   }
 
   // 5. Check protocol version (D6 strict-refuse).
