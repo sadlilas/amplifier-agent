@@ -30,10 +30,18 @@ def _fake_prepared(reply: str = "stub reply") -> tuple[MagicMock, AsyncMock]:
 
     prepared_mock.create_session is an async function that returns a session
     mock (which is also an async context manager) with execute = AsyncMock.
+
+    ``session_mock.coordinator.get.return_value`` is set to ``None`` so the
+    turn-end save path (Fix 2) skips gracefully without needing a real context
+    module.  Tests that specifically want a context module should configure
+    ``coordinator.get.return_value`` after obtaining the session mock.
     """
     execute_mock = AsyncMock(return_value=reply)
     session_mock = MagicMock()
     session_mock.execute = execute_mock
+    # Return None from mount registry so turn-end save is a no-op for tests
+    # that don't need persistence behaviour.
+    session_mock.coordinator.get.return_value = None
 
     async def _fake_create_session(**kwargs):
         return session_mock
@@ -86,6 +94,8 @@ async def test_handler_passes_session_cwd_resolved(tmp_path) -> None:
     execute_mock = AsyncMock(return_value="reply")
     session_mock = MagicMock()
     session_mock.execute = execute_mock
+    # No context module — skip turn-end save gracefully.
+    session_mock.coordinator.get.return_value = None
 
     async def _capturing_create_session(**kwargs):
         captured_kwargs.update(kwargs)
@@ -140,6 +150,8 @@ async def test_handler_passes_is_resumed() -> None:
     execute_mock = AsyncMock(return_value="reply")
     session_mock = MagicMock()
     session_mock.execute = execute_mock
+    # No context module — skip turn-end save gracefully.
+    session_mock.coordinator.get.return_value = None
 
     async def _capturing_create_session(**kwargs):
         captured_kwargs.update(kwargs)
@@ -168,6 +180,8 @@ async def test_handler_registers_session_spawn_capability() -> None:
     session_mock = MagicMock()
     session_mock.execute = execute_mock
     session_mock.config = {}  # empty — no agents to hydrate
+    # No context module — skip turn-end save gracefully.
+    session_mock.coordinator.get.return_value = None
 
     async def _fake_create_session(**kwargs):
         return session_mock
@@ -376,18 +390,16 @@ async def test_runtime_registers_incremental_save_hook(tmp_path, monkeypatch) ->
     def fake_register(event: str, handler_fn: Any, *, name: str = "") -> None:
         captured_registrations.append({"event_name": event, "handler": handler_fn, "name": name})
 
-    set_messages_mock = AsyncMock()
+    # Context stub via mount registry so hook registration succeeds and the
+    # turn-end save (Fix 2) can call get_messages() without a TypeError.
     get_messages_mock = AsyncMock(return_value=[])
-
-    def fake_get_capability(name: str) -> Any:
-        if name == "context.set_messages":
-            return set_messages_mock
-        if name == "context.get_messages":
-            return get_messages_mock
-        return None
+    context_stub = MagicMock()
+    context_stub.set_messages = AsyncMock()
+    context_stub.get_messages = get_messages_mock
 
     coordinator = MagicMock()
-    coordinator.get_capability.side_effect = fake_get_capability
+    coordinator.get.return_value = context_stub       # mount registry
+    coordinator.get_capability.return_value = None    # capability registry — empty
     coordinator.hooks.register.side_effect = fake_register
 
     execute_mock = AsyncMock(return_value="reply")
@@ -438,6 +450,7 @@ async def test_runtime_registers_wire_approval_provider(tmp_path, monkeypatch) -
     coordinator = MagicMock()
     coordinator.register_capability.side_effect = capture
     coordinator.get_capability.return_value = None
+    coordinator.get.return_value = None  # no context module — skip turn-end save
 
     execute_mock = AsyncMock(return_value="reply")
     session_mock = MagicMock()

@@ -175,7 +175,22 @@ def make_turn_handler(
         session.coordinator.register_capability("session.spawn", _spawn_fn)
 
         async with session:
-            return await session.execute(ctx.prompt)
+            reply = await session.execute(ctx.prompt)
+            # Persist final transcript for resume continuity (mirrors
+            # amplifier-app-cli main_loop).  IncrementalSaveHook handles
+            # crash recovery after every tool call; this explicit save
+            # handles conversational turns with no tool calls — those never
+            # emit ``tool:post``, so the hook never fires.
+            if session_id:
+                context_module = session.coordinator.get("context")
+                if context_module is not None and hasattr(context_module, "get_messages"):
+                    final_transcript = await context_module.get_messages()
+                    store.save(
+                        session_id,
+                        final_transcript,
+                        metadata={"last_turn": "complete"},
+                    )
+        return reply
 
     return handler
 
