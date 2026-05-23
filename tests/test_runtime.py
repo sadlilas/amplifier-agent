@@ -221,6 +221,15 @@ class _FakeCoordinator:
         coordinator contract for absent capabilities)."""
         return self.captured_caps.get(name)
 
+    def get(self, name: str) -> Any:
+        """Return ``None`` — no modules mounted in this stub coordinator.
+
+        Matches the real coordinator's mount-registry API.  Returning ``None``
+        causes the runtime's context-access guards to skip gracefully, keeping
+        tests that don't need a context module free of noise.
+        """
+        return None
+
 
 def _fake_prepared_with_coordinator(coordinator: Any, reply: str = "ok") -> MagicMock:
     """Return a prepared mock whose session has the given coordinator."""
@@ -298,8 +307,13 @@ async def test_make_turn_handler_sets_default_fields_session_id() -> None:
 @pytest.mark.asyncio
 async def test_runtime_loads_transcript_for_resumed_session(tmp_path, monkeypatch) -> None:
     """When is_resumed=True and SessionStore has a saved transcript for the
-    session_id, the handler must load it and pass it to
-    ``coordinator.get_capability('context.set_messages')``."""
+    session_id, the handler must load it and call
+    ``coordinator.get('context').set_messages(transcript)`` (A2 — CR-1).
+
+    Uses the module mount registry (coordinator.get), not the capability
+    registry (coordinator.get_capability), because context-simple mounts via
+    coordinator.mount(), not coordinator.register_capability().
+    """
     import amplifier_agent_lib._runtime as runtime_mod
     from amplifier_agent_lib.session_store import SessionStore
 
@@ -315,19 +329,16 @@ async def test_runtime_loads_transcript_for_resumed_session(tmp_path, monkeypatc
     # looks at the same root.
     monkeypatch.setattr(runtime_mod, "state_root", lambda: tmp_path)
 
-    # Capability stubs returned by coordinator.get_capability(name).
+    # Context stub exposed via mount registry (coordinator.get("context")).
     set_messages_mock = AsyncMock()
     get_messages_mock = AsyncMock(return_value=[])
-
-    def fake_get_capability(name: str) -> Any:
-        if name == "context.set_messages":
-            return set_messages_mock
-        if name == "context.get_messages":
-            return get_messages_mock
-        return None
+    context_stub = MagicMock()
+    context_stub.set_messages = set_messages_mock
+    context_stub.get_messages = get_messages_mock
 
     coordinator = MagicMock()
-    coordinator.get_capability.side_effect = fake_get_capability
+    coordinator.get.return_value = context_stub      # mount registry — correct path
+    coordinator.get_capability.return_value = None   # capability registry — empty
 
     execute_mock = AsyncMock(return_value="reply")
     session_mock = MagicMock()

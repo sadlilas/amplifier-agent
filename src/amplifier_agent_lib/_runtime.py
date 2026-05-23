@@ -11,6 +11,7 @@ bundle, threads wire-supplied ``mcpServers`` into ``tool-mcp.mount()`` via
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,8 @@ from amplifier_agent_lib.wire_approval_provider import WireApprovalProvider
 
 if TYPE_CHECKING:
     from amplifier_foundation.bundle._prepared import PreparedBundle
+
+logger = logging.getLogger(__name__)
 
 
 def make_turn_handler(
@@ -111,27 +114,48 @@ def make_turn_handler(
         await mount_streaming_hook(session.coordinator, {})
 
         # Resume: replay the persisted transcript into the new session's
-        # context module via the ``context.set_messages`` capability.  Guard
-        # with ``is not None`` so kernels/contexts without this capability
-        # simply skip replay rather than crash (A2 — CR-1, Design §4.8).
+        # context module via ``coordinator.get("context").set_messages``.
+        # Uses the module **mount** registry (coordinator.get), not the
+        # capability registry (coordinator.get_capability), because
+        # context-simple mounts via coordinator.mount(), not
+        # coordinator.register_capability().  Guard with hasattr so any
+        # context module that does not expose set_messages is skipped safely
+        # rather than crashing (A2 — CR-1, Design §4.8).
         if loaded_transcript:
-            set_messages = session.coordinator.get_capability("context.set_messages")
-            if set_messages is not None:
-                await set_messages(loaded_transcript)
+            context_module = session.coordinator.get("context")
+            if context_module is not None and hasattr(context_module, "set_messages"):
+                await context_module.set_messages(loaded_transcript)
+            else:
+                logger.warning(
+                    "Resume requested for session %s but context module does not "
+                    "expose set_messages — transcript replay skipped. "
+                    "Context module: %r",
+                    session_id,
+                    context_module,
+                )
 
         # Persistence: register the IncrementalSaveHook on ``tool:post`` so the
         # transcript is checkpointed after every tool call.  Skip if the
         # session has no id (no place to persist) or if the context module
-        # does not expose ``context.get_messages`` (nothing to read).
+        # does not expose ``get_messages`` (nothing to read).
+        # Uses mount registry for the same reason as the resume path above.
         if session_id:
-            get_messages = session.coordinator.get_capability("context.get_messages")
-            if get_messages is not None:
+            context_module = session.coordinator.get("context")
+            if context_module is not None and hasattr(context_module, "get_messages"):
                 save_hook = IncrementalSaveHook(
                     store=store,
                     session_id=session_id,
-                    get_messages=get_messages,
+                    get_messages=context_module.get_messages,
                 )
                 session.coordinator.hooks.register("tool:post", save_hook, name="incremental_save")
+            else:
+                logger.warning(
+                    "Session %s: context module does not expose get_messages — "
+                    "IncrementalSaveHook will not be registered. "
+                    "Context module: %r",
+                    session_id,
+                    context_module,
+                )
 
         # Register session.spawn on the coordinator so the delegate tool can
         # spawn child sessions.  Per KERNEL_PHILOSOPHY, this is app-layer
