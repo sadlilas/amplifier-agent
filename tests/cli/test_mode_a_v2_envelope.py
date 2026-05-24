@@ -37,3 +37,24 @@ def test_output_defaults_to_json_envelope_shape() -> None:
     assert "metadata" in envelope
     assert "correlationId" in envelope["metadata"]
     assert "engineVersion" in envelope["metadata"]
+
+
+def test_output_text_emits_reply_only() -> None:
+    """--output text emits the reply on stdout, no JSON envelope. §4.6."""
+    runner = CliRunner()
+    with patch(
+        "amplifier_agent_cli.modes.single_turn._execute_turn",
+        return_value=_mock_turn_result("plain text reply"),
+    ), patch(
+        "amplifier_agent_cli.provider_detect.detect_provider",
+        return_value="anthropic",
+    ):
+        result = runner.invoke(
+            run, ["--session-id", "sid-1", "--output", "text", "hello"]
+        )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == "plain text reply"
+    # Must NOT be parseable as the JSON envelope:
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
