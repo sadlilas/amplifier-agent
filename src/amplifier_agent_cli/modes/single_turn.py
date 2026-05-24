@@ -72,20 +72,33 @@ def _mint_correlation_id() -> str:
     return str(uuid.uuid4())
 
 
-def _emit_argv_envelope(code: str, message: str, exit_code: int = 2) -> None:
-    """Emit a §4.1-shape error envelope for argv-validation failures. O2'."""
+def _emit_argv_envelope(
+    code: str,
+    message: str,
+    exit_code: int = 2,
+    *,
+    remediation: str | None = None,
+) -> None:
+    """Emit a §4.1-shape error envelope for argv-validation failures. O2'.
+
+    *remediation*, when provided, is included as ``error.remediation`` — a
+    structured hint that wrappers can surface verbatim to users.
+    """
+    error: dict[str, Any] = {
+        "code": code,
+        "classification": "protocol",
+        "severity": "error",
+        "correlationId": _mint_correlation_id(),
+        "message": message,
+    }
+    if remediation is not None:
+        error["remediation"] = remediation
     envelope: dict[str, Any] = {
         "protocolVersion": PROTOCOL_VERSION,
         "sessionId": "",
         "turnId": "",
         "reply": "",
-        "error": {
-            "code": code,
-            "classification": "protocol",
-            "severity": "error",
-            "correlationId": _mint_correlation_id(),
-            "message": message,
-        },
+        "error": error,
         "metadata": {
             "tokensIn": 0,
             "tokensOut": 0,
@@ -301,6 +314,30 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
     default=False,
     help="Allow protocol version mismatch between client and engine (unsafe; for testing only).",
 )
+@click.option(
+    "--host-capabilities",
+    "host_capabilities_raw",
+    default=None,
+    help="Host capabilities as inline JSON object.",
+)
+@click.option(
+    "--env-allowlist",
+    "env_allowlist_raw",
+    default=None,
+    help="Comma-separated env var names allowed into the engine subprocess.",
+)
+@click.option(
+    "--env-extra",
+    "env_extra_raw",
+    default=None,
+    help="Extra env vars as inline JSON object (validated against BLOCKED_ENV_KEYS).",
+)
+@click.option(
+    "--protocol-version",
+    "protocol_version_arg",
+    default=None,
+    help="Wrapper's pinned protocol version; engine self-validates.",
+)
 def run(
     prompt: str | None,
     session_id: str | None,
@@ -318,6 +355,10 @@ def run(
     output_mode: str,
     mcp_servers_raw: str | None,
     allow_protocol_skew: bool,
+    host_capabilities_raw: str | None,
+    env_allowlist_raw: str | None,
+    env_extra_raw: str | None,
+    protocol_version_arg: str | None,
 ) -> None:
     """Run the agent in single-turn mode (Mode A).
 
@@ -356,6 +397,29 @@ def run(
     # envelope and exits 2 on parse / IO / type errors.
     mcp_servers = _parse_json_or_atpath(mcp_servers_raw, flag_name="--mcp-servers")
 
+    # (5c) Parse host capabilities, env extras, and env allowlist (A1'/D12').
+    # env_extra and env_allowlist are parsed here but threaded into the engine
+    # subprocess wiring in a later task (D12' completion); the surface is
+    # exposed now so wrappers can begin passing them without an interface bump.
+    host_capabilities = _parse_json_or_atpath(host_capabilities_raw, flag_name="--host-capabilities")
+    env_extra = _parse_json_or_atpath(env_extra_raw, flag_name="--env-extra")  # noqa: F841 (D12' wiring)
+    env_allowlist = (  # noqa: F841 (D12' wiring)
+        [k.strip() for k in env_allowlist_raw.split(",") if k.strip()] if env_allowlist_raw else None
+    )
+
+    # (5d) Protocol version self-validation (D6 mechanism shift).
+    if protocol_version_arg and not (allow_protocol_skew or os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")):
+        if protocol_version_arg != PROTOCOL_VERSION:
+            _emit_argv_envelope(
+                "protocol_version_mismatch",
+                f"Wrapper expects protocol {protocol_version_arg}, engine compiled with {PROTOCOL_VERSION}.",
+                remediation=(
+                    "To force, pass --allow-protocol-skew (unsafe) or reinstall both: "
+                    "`uv tool install --reinstall amplifier-agent` and "
+                    "`npm install amplifier-agent-client-ts@latest`."
+                ),
+            )
+
     # (6) Build spec.
     spec = _TurnSpec(
         prompt=prompt,
@@ -388,7 +452,7 @@ def run(
         envelope = _build_envelope(
             result,
             correlation_id=correlation_id,
-            host_capabilities=None,  # populated in Task 7
+            host_capabilities=host_capabilities,
             duration_ms=duration_ms,
             session_id=session_id or "",
         )
