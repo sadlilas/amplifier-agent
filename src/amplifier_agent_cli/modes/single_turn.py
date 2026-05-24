@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import os
 import sys
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +153,52 @@ def _parse_json_or_atpath(value: str | None, *, flag_name: str) -> dict[str, Any
         )
         return None  # unreachable
     return parsed
+
+
+# ---------------------------------------------------------------------------
+# Audit trail (SC-H / A2.1') — per-turn sha256-digested audit records
+# ---------------------------------------------------------------------------
+
+
+def _sha256(s: str) -> str:
+    return "sha256:" + hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _write_audit(
+    *,
+    session_id: str,
+    turn_id: str,
+    correlation_id: str,
+    exit_code: int,
+    started_at: str,
+    ended_at: str,
+    argv: list[str],
+    mcp_servers: dict[str, Any] | None,
+    env_allowlist: list[str] | None,
+    env_extra: dict[str, Any] | None,
+    host_capabilities: dict[str, Any] | None,
+    protocol_version: str,
+) -> None:
+    """SC-H — write per-turn audit digest. Secrets are sha256'd, never literal."""
+    from amplifier_agent_lib.persistence import session_state_dir
+
+    if not session_id:
+        return  # No session id ⇒ no audit (matches anonymous CLI use).
+    audits_dir = session_state_dir(session_id) / "audits"
+    audits_dir.mkdir(parents=True, exist_ok=True)
+    audit = {
+        "argvDigest": _sha256(" ".join(argv)),
+        "mcpServersDigest": (_sha256(json.dumps(mcp_servers, sort_keys=True)) if mcp_servers else None),
+        "envDigest": _sha256(json.dumps({"allow": env_allowlist or [], "extra": env_extra or {}}, sort_keys=True)),
+        "hostCapabilities": host_capabilities,
+        "protocolVersion": protocol_version,
+        "exitCode": exit_code,
+        "correlationId": correlation_id,
+        "startedAt": started_at,
+        "endedAt": ended_at,
+    }
+    audit_file = audits_dir / f"turn-{turn_id}.json"
+    audit_file.write_text(json.dumps(audit, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -473,10 +521,8 @@ def run(
     # subprocess wiring in a later task (D12' completion); the surface is
     # exposed now so wrappers can begin passing them without an interface bump.
     host_capabilities = _parse_json_or_atpath(host_capabilities_raw, flag_name="--host-capabilities")
-    env_extra = _parse_json_or_atpath(env_extra_raw, flag_name="--env-extra")  # noqa: F841 (D12' wiring)
-    env_allowlist = (  # noqa: F841 (D12' wiring)
-        [k.strip() for k in env_allowlist_raw.split(",") if k.strip()] if env_allowlist_raw else None
-    )
+    env_extra = _parse_json_or_atpath(env_extra_raw, flag_name="--env-extra")
+    env_allowlist = [k.strip() for k in env_allowlist_raw.split(",") if k.strip()] if env_allowlist_raw else None
 
     # (5d) Protocol version self-validation (D6 mechanism shift).
     if protocol_version_arg and not (allow_protocol_skew or os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")):
@@ -517,6 +563,7 @@ def run(
     import time
 
     started = time.monotonic()
+    started_iso = datetime.now(UTC).isoformat()
     try:
         if output_mode == "json":
             with contextlib.redirect_stdout(sys.stderr):
@@ -537,7 +584,22 @@ def run(
         )
         _real_stdout.write(json.dumps(envelope) + "\n")
         _real_stdout.flush()
-        sys.exit(_EXIT_CODE_BY_CLASSIFICATION[envelope["error"]["classification"]])
+        exit_code = _EXIT_CODE_BY_CLASSIFICATION[envelope["error"]["classification"]]
+        _write_audit(
+            session_id=session_id or "",
+            turn_id=envelope.get("turnId") or "turn-1",
+            correlation_id=correlation_id,
+            exit_code=exit_code,
+            started_at=started_iso,
+            ended_at=datetime.now(UTC).isoformat(),
+            argv=sys.argv,
+            mcp_servers=mcp_servers,
+            env_allowlist=env_allowlist,
+            env_extra=env_extra,
+            host_capabilities=host_capabilities,
+            protocol_version=PROTOCOL_VERSION,
+        )
+        sys.exit(exit_code)
     except Exception as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
         envelope = _build_error_envelope(
@@ -551,6 +613,20 @@ def run(
         )
         _real_stdout.write(json.dumps(envelope) + "\n")
         _real_stdout.flush()
+        _write_audit(
+            session_id=session_id or "",
+            turn_id=envelope.get("turnId") or "turn-1",
+            correlation_id=correlation_id,
+            exit_code=1,
+            started_at=started_iso,
+            ended_at=datetime.now(UTC).isoformat(),
+            argv=sys.argv,
+            mcp_servers=mcp_servers,
+            env_allowlist=env_allowlist,
+            env_extra=env_extra,
+            host_capabilities=host_capabilities,
+            protocol_version=PROTOCOL_VERSION,
+        )
         sys.exit(1)
     duration_ms = int((time.monotonic() - started) * 1000)
     if output_mode == "json":
@@ -566,3 +642,18 @@ def run(
     else:  # text
         _real_stdout.write(result.get("reply", "") + "\n")
         _real_stdout.flush()
+    # SC-H — per-turn audit trail (success path).
+    _write_audit(
+        session_id=session_id or "",
+        turn_id=result.get("turnId") or "turn-1",
+        correlation_id=correlation_id,
+        exit_code=0,
+        started_at=started_iso,
+        ended_at=datetime.now(UTC).isoformat(),
+        argv=sys.argv,
+        mcp_servers=mcp_servers,
+        env_allowlist=env_allowlist,
+        env_extra=env_extra,
+        host_capabilities=host_capabilities,
+        protocol_version=PROTOCOL_VERSION,
+    )
