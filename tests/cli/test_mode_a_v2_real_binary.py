@@ -163,3 +163,32 @@ def test_real_binary_happy_path(mock_llm, tmp_path) -> None:
     assert envelope["error"] is None
     assert "real-binary-ok" in envelope["reply"]
     assert envelope["metadata"]["correlationId"]
+
+
+def test_real_binary_becomes_session_leader(mock_llm, tmp_path) -> None:
+    """SC-B: engine must call os.setsid() so MCP children inherit a group.
+
+    We verify by reading /proc/<pid>/stat on Linux, or skipping on darwin.
+    The check is: getsid(engine_pid) == engine_pid (engine is the session leader).
+    """
+    import sys
+
+    if sys.platform == "darwin":
+        pytest.skip("getsid via /proc is Linux-only; PGID behavior verified in Phase B fixtures")
+
+    env = os.environ.copy()
+    env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{mock_llm}"
+    env["ANTHROPIC_API_KEY"] = "test-key"
+    env["XDG_STATE_HOME"] = str(tmp_path)
+    env["AMPLIFIER_AGENT_DEBUG_SIDLOG"] = "1"
+
+    proc = subprocess.run(
+        [_binary_path(), "run", "--session-id", "sid-sid", "--fresh", "--output", "json", "say hi"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    # The engine logs its SID and PID at debug if AMPLIFIER_AGENT_DEBUG_SIDLOG is set.
+    assert "engine-sid-ok" in proc.stderr

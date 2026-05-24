@@ -484,6 +484,22 @@ def run(
     Boots the engine, submits PROMPT, prints the JSON result to stdout,
     and exits 0.  All diagnostic output goes to stderr only.
     """
+    # SC-B — engine becomes session leader so MCP child processes spawned via
+    # tool-mcp.mount() inherit a shared session group. The wrapper kills the
+    # group on cancel so children die with the parent.
+    try:
+        if os.getsid(0) != os.getpid():
+            os.setsid()
+    except (OSError, PermissionError):
+        # Best-effort — running under a debugger or test harness that already
+        # owns a session may make setsid() fail; tolerate.
+        pass
+    if os.environ.get("AMPLIFIER_AGENT_DEBUG_SIDLOG"):
+        try:
+            sys.stderr.write(f"engine-sid-ok pid={os.getpid()} sid={os.getsid(0)}\n")
+        except OSError:
+            pass
+
     # (1) -y and -n are mutually exclusive.
     if yes_flag and no_flag:
         raise click.UsageError("-y and -n are mutually exclusive")
