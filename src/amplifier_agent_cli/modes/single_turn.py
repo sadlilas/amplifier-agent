@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import sys
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,6 +64,45 @@ def _resolve_verbosity(quiet: bool, verbose: bool, debug: bool) -> str:
     if quiet:
         return "quiet"
     return "normal"
+
+
+def _mint_correlation_id() -> str:
+    """UUID v4, minted once per `run` invocation. SC-G."""
+    return str(uuid.uuid4())
+
+
+def _build_envelope(
+    result: dict[str, Any],
+    *,
+    correlation_id: str,
+    host_capabilities: dict[str, Any] | None,
+    duration_ms: int,
+    session_id: str = "",
+) -> dict[str, Any]:
+    """Build the §4.1 success envelope from an engine turn result.
+
+    ``session_id`` (when non-empty) overrides ``result['sessionId']`` so the
+    envelope echoes the session ID supplied by the caller / CLI option.
+    """
+    metadata: dict[str, Any] = {
+        "tokensIn": int(result.get("tokensIn", 0) or 0),
+        "tokensOut": int(result.get("tokensOut", 0) or 0),
+        "durationMs": duration_ms,
+        "bundleDigest": result.get("bundleDigest", ""),
+        "engineVersion": __version__,
+        "protocolVersion": PROTOCOL_VERSION,
+        "correlationId": correlation_id,
+    }
+    if host_capabilities is not None:
+        metadata["hostCapabilities"] = host_capabilities
+    return {
+        "protocolVersion": PROTOCOL_VERSION,
+        "sessionId": session_id or result.get("sessionId", ""),
+        "turnId": result.get("turnId", "turn-1"),
+        "reply": result.get("reply", ""),
+        "error": None,
+        "metadata": metadata,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +276,10 @@ def run(
     )
 
     # (7) Run with error handling.
+    correlation_id = _mint_correlation_id()
+    import time
+
+    started = time.monotonic()
     try:
         result = asyncio.run(_execute_turn(spec))
     except AaaError as exc:
@@ -244,4 +288,12 @@ def run(
     except Exception as exc:
         _emit_error("internal", f"{type(exc).__name__}: {exc}")
         sys.exit(1)
-    click.echo(json.dumps(result, indent=2))
+    duration_ms = int((time.monotonic() - started) * 1000)
+    envelope = _build_envelope(
+        result,
+        correlation_id=correlation_id,
+        host_capabilities=None,  # populated in Task 7
+        duration_ms=duration_ms,
+        session_id=session_id or "",
+    )
+    click.echo(json.dumps(envelope))
