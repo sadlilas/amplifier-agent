@@ -207,6 +207,14 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
 @click.option("-n", "--no", "no_flag", is_flag=True, default=False, help="Auto-decline all requests.")
 @click.option("--quiet", is_flag=True, default=False, help="Suppress all diagnostic output.")
 @click.option(
+    "--output",
+    "output_mode",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="json",
+    show_default=True,
+    help="Output mode: 'json' (default, envelope) or 'text' (reply only).",
+)
+@click.option(
     "--allow-protocol-skew",
     "allow_protocol_skew",
     is_flag=True,
@@ -227,6 +235,7 @@ def run(
     yes_flag: bool,
     no_flag: bool,
     quiet: bool,
+    output_mode: str,
     allow_protocol_skew: bool,
 ) -> None:
     """Run the agent in single-turn mode (Mode A).
@@ -289,11 +298,14 @@ def run(
         _emit_error("internal", f"{type(exc).__name__}: {exc}")
         sys.exit(1)
     duration_ms = int((time.monotonic() - started) * 1000)
-    envelope = _build_envelope(
-        result,
-        correlation_id=correlation_id,
-        host_capabilities=None,  # populated in Task 7
-        duration_ms=duration_ms,
-        session_id=session_id or "",
-    )
-    click.echo(json.dumps(envelope))
+    if output_mode == "json":
+        envelope = _build_envelope(
+            result,
+            correlation_id=correlation_id,
+            host_capabilities=None,  # populated in Task 7
+            duration_ms=duration_ms,
+            session_id=session_id or "",
+        )
+        click.echo(json.dumps(envelope))
+    else:  # text
+        click.echo(result.get("reply", ""))
