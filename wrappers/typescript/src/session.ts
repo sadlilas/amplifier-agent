@@ -16,25 +16,45 @@
  * cancel()/dispose() both call terminate() on the underlying transport (D3).
  */
 
+// TODO(phase-b-task-8): delete unused L14 imports after subprocess driver lands
 import { synthesizeFinalIfMissing } from "./l14.js";
 import { makeApprovalHandler } from "./approval.js";
 import type { ApprovalAdapter } from "./approval.js";
 import { applyDisplayFilter } from "./display.js";
 import type { DisplayAdapter } from "./display.js";
 
-/** A display event yielded by SessionHandle.submit(). */
-export interface DisplayEvent {
-  /** Notification method name, e.g. 'result/delta', 'result/final'. */
-  type: string;
-  sessionId: string;
-  turnId: string;
-  /** Present on sub-agent events. */
-  parentTurnId?: string;
-  /** True if wrapper-synthesized via L14 path. */
-  synthesized?: boolean;
-  /** The full notification params object. */
-  payload: Record<string, unknown>;
-}
+/**
+ * A display event yielded by `SessionHandle.submit()`.
+ *
+ * **BREAKING CHANGE (v0.3.0, CR-C — Mode A pivot amendment §5.2):**
+ * The flat `{ type: string; sessionId; turnId; parentTurnId?; synthesized?; payload }`
+ * interface has been replaced with the discriminated union below. The following
+ * fields have been **removed** because the Mode A wire (subprocess + `--output json`)
+ * cannot meaningfully populate them:
+ *
+ *   - `turnId`           — wrapper no longer correlates per-turn IDs
+ *   - `parentTurnId`     — no sub-turn nesting on the Mode A wire
+ *   - `synthesized`      — L14 synthesis path is removed (subprocess always returns
+ *                          a final reply or non-zero exit)
+ *   - `payload`          — replaced by per-variant typed fields (`text`, `code`, …)
+ *
+ * Migration: see `docs/designs/2026-05-24-aaa-v2-mode-a-pivot-amendment.md §5.2`
+ * for the rationale and consumer migration path (NC's `ProviderEvent` mapping).
+ */
+export type DisplayEvent =
+  | { type: "init"; sessionId: string }
+  | { type: "activity" }
+  | { type: "result"; text: string }
+  | {
+      type: "error";
+      code: string;
+      classification: "transport" | "protocol" | "engine" | "approval" | "unknown";
+      severity: "error" | "warning";
+      correlationId: string;
+      message: string;
+      stderrTail?: string;
+      retryable: boolean;
+    };
 
 /** Typed error for AaA wrapper lifecycle and protocol violations. */
 export class AaaError extends Error {
