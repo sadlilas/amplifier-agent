@@ -12,6 +12,7 @@ import os
 import sys
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import click
@@ -71,6 +72,73 @@ def _mint_correlation_id() -> str:
     return str(uuid.uuid4())
 
 
+def _emit_argv_envelope(code: str, message: str, exit_code: int = 2) -> None:
+    """Emit a §4.1-shape error envelope for argv-validation failures. O2'."""
+    envelope: dict[str, Any] = {
+        "protocolVersion": PROTOCOL_VERSION,
+        "sessionId": "",
+        "turnId": "",
+        "reply": "",
+        "error": {
+            "code": code,
+            "classification": "protocol",
+            "severity": "error",
+            "correlationId": _mint_correlation_id(),
+            "message": message,
+        },
+        "metadata": {
+            "tokensIn": 0,
+            "tokensOut": 0,
+            "durationMs": 0,
+            "bundleDigest": "",
+            "engineVersion": __version__,
+            "protocolVersion": PROTOCOL_VERSION,
+            "correlationId": "",  # mirrored from error.correlationId below
+        },
+    }
+    envelope["metadata"]["correlationId"] = envelope["error"]["correlationId"]
+    click.echo(json.dumps(envelope))
+    sys.exit(exit_code)
+
+
+def _parse_json_or_atpath(value: str | None, *, flag_name: str) -> dict[str, Any] | None:
+    """Parse a ``--foo '<json>'`` or ``--foo '@<path>'`` flag value.
+
+    Returns ``None`` when *value* is ``None``.  On parse/IO/type errors emits
+    a §4.1 error envelope via :func:`_emit_argv_envelope` and exits with
+    code 2 (argv-validation failures are protocol-class).
+    """
+    if value is None:
+        return None
+    if value.startswith("@"):
+        path = Path(value[1:]).expanduser()
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            _emit_argv_envelope(
+                "argv_path_unreadable",
+                f"{flag_name} @path not readable: {path}: {exc}",
+            )
+            return None  # unreachable; _emit_argv_envelope calls sys.exit
+    else:
+        raw = value
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        _emit_argv_envelope(
+            "argv_json_malformed",
+            f"{flag_name} JSON parse error at position {exc.pos}: {exc.msg}",
+        )
+        return None  # unreachable
+    if not isinstance(parsed, dict):
+        _emit_argv_envelope(
+            "argv_json_malformed",
+            f"{flag_name} must be a JSON object, got {type(parsed).__name__}",
+        )
+        return None  # unreachable
+    return parsed
+
+
 def _build_envelope(
     result: dict[str, Any],
     *,
@@ -123,6 +191,7 @@ class _TurnSpec:
     display: CliDisplaySystem
     provider: str  # detected provider short-name (e.g. 'anthropic')
     allow_protocol_skew: bool = False
+    mcp_servers: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +219,11 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
         if state_dir.exists():
             shutil.rmtree(state_dir, ignore_errors=True)
 
+    # TODO(phase-A-task-7): thread spec.mcp_servers into make_turn_handler so
+    # tool-mcp.mount() receives the dynamic ``servers`` config dict from the
+    # CLI flag.  make_turn_handler does not yet accept an ``mcp_servers``
+    # kwarg (only handle_initialize does, via wire ``params["mcpServers"]``);
+    # wiring lives in Task 15's lint cleanup per the 2026-05-22 §4.8 closure.
     handler = make_turn_handler(
         prepared,
         cwd=spec.cwd,
@@ -215,6 +289,12 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
     help="Output mode: 'json' (default, envelope) or 'text' (reply only).",
 )
 @click.option(
+    "--mcp-servers",
+    "mcp_servers_raw",
+    default=None,
+    help="MCP servers config as inline JSON or '@<path>' to JSON file.",
+)
+@click.option(
     "--allow-protocol-skew",
     "allow_protocol_skew",
     is_flag=True,
@@ -236,6 +316,7 @@ def run(
     no_flag: bool,
     quiet: bool,
     output_mode: str,
+    mcp_servers_raw: str | None,
     allow_protocol_skew: bool,
 ) -> None:
     """Run the agent in single-turn mode (Mode A).
@@ -271,6 +352,10 @@ def run(
         stream=sys.stderr,
     )
 
+    # (5b) Parse --mcp-servers (inline JSON or @path).  Emits a §4.1 error
+    # envelope and exits 2 on parse / IO / type errors.
+    mcp_servers = _parse_json_or_atpath(mcp_servers_raw, flag_name="--mcp-servers")
+
     # (6) Build spec.
     spec = _TurnSpec(
         prompt=prompt,
@@ -282,6 +367,7 @@ def run(
         display=display,
         provider=provider_name,
         allow_protocol_skew=allow_protocol_skew or bool(os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")),
+        mcp_servers=mcp_servers,
     )
 
     # (7) Run with error handling.
