@@ -206,3 +206,30 @@ def test_protocol_version_skew_suppressed_by_flag() -> None:
         )
 
     assert result.exit_code == 0, result.output
+
+
+def test_engine_exception_yields_error_envelope_shape() -> None:
+    """An AaaError raised by the engine must surface as §4.3 error envelope."""
+    from amplifier_agent_lib.protocol.errors import AaaError as EngineAaaError
+
+    async def raise_engine_error(spec):
+        raise EngineAaaError("approval_translation_failed", "bad action 'review'")
+
+    runner = CliRunner()
+    with patch(
+        "amplifier_agent_cli.modes.single_turn._execute_turn",
+        side_effect=raise_engine_error,
+    ), patch(
+        "amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"
+    ):
+        result = runner.invoke(run, ["--session-id", "sid-1", "hello"])
+
+    assert result.exit_code == 3, (result.exit_code, result.stdout)
+    # exit 3 per §4.4 for classification == 'approval'
+    envelope = json.loads(result.stdout)
+    assert envelope["error"] is not None
+    assert envelope["error"]["code"] == "approval_translation_failed"
+    assert envelope["error"]["classification"] == "approval"
+    assert envelope["reply"] == ""
+    # error.correlationId must equal metadata.correlationId (SC-G)
+    assert envelope["error"]["correlationId"] == envelope["metadata"]["correlationId"]
