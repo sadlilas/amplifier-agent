@@ -7,6 +7,7 @@ and exits 0.  All diagnostics go to stderr only.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -435,12 +436,24 @@ def run(
     )
 
     # (7) Run with error handling.
+    # Capture the real stdout FD before any redirection so the final envelope
+    # emission (and only that) writes to it.  CR-B / §4.0 stdout discipline:
+    # any print() or stray write inside _execute_turn (e.g. a misbehaving
+    # bundle module) gets diverted to stderr so it cannot corrupt the JSON
+    # envelope on stdout.
+    _real_stdout = sys.stdout
+
     correlation_id = _mint_correlation_id()
     import time
 
     started = time.monotonic()
     try:
-        result = asyncio.run(_execute_turn(spec))
+        if output_mode == "json":
+            with contextlib.redirect_stdout(sys.stderr):
+                result = asyncio.run(_execute_turn(spec))
+        else:
+            # text mode — leave stdout intact; users want to see the reply.
+            result = asyncio.run(_execute_turn(spec))
     except AaaError as exc:
         _emit_error(exc.code, exc.message)
         sys.exit(1)
@@ -456,6 +469,8 @@ def run(
             duration_ms=duration_ms,
             session_id=session_id or "",
         )
-        click.echo(json.dumps(envelope))
+        _real_stdout.write(json.dumps(envelope) + "\n")
+        _real_stdout.flush()
     else:  # text
-        click.echo(result.get("reply", ""))
+        _real_stdout.write(result.get("reply", "") + "\n")
+        _real_stdout.flush()
