@@ -153,6 +153,76 @@ def _parse_json_or_atpath(value: str | None, *, flag_name: str) -> dict[str, Any
     return parsed
 
 
+# ---------------------------------------------------------------------------
+# Error envelope (§4.3 / §4.4) — classification → exit code mapping
+# ---------------------------------------------------------------------------
+
+_EXIT_CODE_BY_CLASSIFICATION = {
+    "engine": 1,
+    "transport": 1,
+    "unknown": 1,
+    "protocol": 2,
+    "approval": 3,
+}
+
+# Map known engine AaaError codes onto classifications. Add entries as the
+# engine grows new error codes; default to 'engine'.
+_CLASSIFICATION_BY_CODE = {
+    "approval_translation_failed": "approval",
+    "approval_timeout": "approval",
+    "approval_protocol_violation": "approval",
+    "protocol_version_mismatch": "protocol",
+    "argv_json_malformed": "protocol",
+    "argv_path_unreadable": "protocol",
+}
+
+
+def _classify(code: str) -> str:
+    return _CLASSIFICATION_BY_CODE.get(code, "engine")
+
+
+def _build_error_envelope(
+    *,
+    code: str,
+    message: str,
+    correlation_id: str,
+    session_id: str,
+    turn_id: str,
+    host_capabilities: dict[str, Any] | None,
+    duration_ms: int,
+    stderr_tail: str | None = None,
+) -> dict[str, Any]:
+    classification = _classify(code)
+    metadata: dict[str, Any] = {
+        "tokensIn": 0,
+        "tokensOut": 0,
+        "durationMs": duration_ms,
+        "bundleDigest": "",
+        "engineVersion": __version__,
+        "protocolVersion": PROTOCOL_VERSION,
+        "correlationId": correlation_id,
+    }
+    if host_capabilities is not None:
+        metadata["hostCapabilities"] = host_capabilities
+    error: dict[str, Any] = {
+        "code": code,
+        "classification": classification,
+        "severity": "error",
+        "correlationId": correlation_id,
+        "message": message,
+    }
+    if stderr_tail:
+        error["stderrTail"] = stderr_tail
+    return {
+        "protocolVersion": PROTOCOL_VERSION,
+        "sessionId": session_id,
+        "turnId": turn_id,
+        "reply": "",
+        "error": error,
+        "metadata": metadata,
+    }
+
+
 def _build_envelope(
     result: dict[str, Any],
     *,
@@ -455,10 +525,32 @@ def run(
             # text mode — leave stdout intact; users want to see the reply.
             result = asyncio.run(_execute_turn(spec))
     except AaaError as exc:
-        _emit_error(exc.code, exc.message)
-        sys.exit(1)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        envelope = _build_error_envelope(
+            code=exc.code,
+            message=exc.message,
+            correlation_id=correlation_id,
+            session_id=session_id or "",
+            turn_id="turn-1",
+            host_capabilities=host_capabilities,
+            duration_ms=duration_ms,
+        )
+        _real_stdout.write(json.dumps(envelope) + "\n")
+        _real_stdout.flush()
+        sys.exit(_EXIT_CODE_BY_CLASSIFICATION[envelope["error"]["classification"]])
     except Exception as exc:
-        _emit_error("internal", f"{type(exc).__name__}: {exc}")
+        duration_ms = int((time.monotonic() - started) * 1000)
+        envelope = _build_error_envelope(
+            code="internal",
+            message=f"{type(exc).__name__}: {exc}",
+            correlation_id=correlation_id,
+            session_id=session_id or "",
+            turn_id="turn-1",
+            host_capabilities=host_capabilities,
+            duration_ms=duration_ms,
+        )
+        _real_stdout.write(json.dumps(envelope) + "\n")
+        _real_stdout.flush()
         sys.exit(1)
     duration_ms = int((time.monotonic() - started) * 1000)
     if output_mode == "json":

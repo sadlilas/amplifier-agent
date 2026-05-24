@@ -23,9 +23,9 @@ class AaaError(Exception):
 
     def __init__(
         self,
-        *,
         code: str,
         message: str,
+        *,
         severity: str | None = None,
         classification: str | None = None,
         correlation_id: str | None = None,
