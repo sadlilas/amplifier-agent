@@ -4,7 +4,10 @@
   "description": "TypeScript client wrapper for the Amplifier agent Mode A wire (POC: consumed via git+install from github.com/microsoft/amplifier-agent).",
   "type": "module",
   "exports": {
-    ".": "./wrappers/typescript/dist/index.js"
+    ".": {
+      "types": "./wrappers/typescript/dist/index.d.ts",
+      "import": "./wrappers/typescript/dist/index.js"
+    }
   },
   "types": "./wrappers/typescript/dist/index.d.ts",
   "files": [
