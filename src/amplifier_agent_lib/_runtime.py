@@ -34,6 +34,7 @@ def make_turn_handler(
     *,
     cwd: str | None,
     is_resumed: bool,
+    mcp_servers: dict[str, Any] | None = None,
 ) -> TurnHandler:
     """Return a TurnHandler closed over the loaded PreparedBundle.
 
@@ -53,6 +54,13 @@ def make_turn_handler(
         if provided; None otherwise.
     is_resumed:
         Whether the session should be treated as a resumed session.
+    mcp_servers:
+        Dynamic MCP server configurations supplied by the CLI invoker (e.g. via
+        the ``--mcp-servers`` flag).  Merged with the bundle's static ``tool-mcp``
+        config and passed to ``prepared.create_session(tool_overrides=...)`` so
+        ``tool-mcp.mount()`` sees the dynamic ``servers`` dict.  Mirrors the wire
+        path's behavior in ``handle_initialize`` (this function's CLI-side twin).
+        Defaults to ``None`` (treated as ``{}``) for backward compatibility.
 
     Returns
     -------
@@ -63,6 +71,16 @@ def make_turn_handler(
     from amplifier_agent_lib.spawn import hydrate_agent_overlay, spawn_sub_session
 
     resolved_cwd: Path | None = Path(cwd).resolve() if cwd else None
+
+    # Merge dynamic mcp_servers (CLI-supplied) with the bundle's static tool-mcp
+    # config and close over the resulting dict.  Mirrors the wire path in
+    # handle_initialize so that --mcp-servers reaches tool-mcp.mount() the same
+    # way params["mcpServers"] does.  Per amplifier_module_tool_mcp/config.py,
+    # the tool_overrides config dict has highest priority at mount-time.
+    _tool_mcp_static = (
+        prepared.config.get("tools", {}).get("tool-mcp", {}).get("config", {})  # pyright: ignore[reportAttributeAccessIssue]
+    )
+    _tool_mcp_config = {**_tool_mcp_static, "servers": mcp_servers or {}}
 
     # Pre-hydrate agent overlays from the vendored agent markdown files.
     # This is done once at handler-creation time (cold path) so each turn
@@ -94,6 +112,7 @@ def make_turn_handler(
             session_id=session_id,
             session_cwd=resolved_cwd,
             is_resumed=is_resumed,
+            tool_overrides={"tool-mcp": {"config": _tool_mcp_config}},  # pyright: ignore[reportCallIssue]
         )
 
         # Wire display and approval into the coordinator so hook events can

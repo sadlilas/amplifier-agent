@@ -351,15 +351,11 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
         if state_dir.exists():
             shutil.rmtree(state_dir, ignore_errors=True)
 
-    # TODO(phase-A-task-7): thread spec.mcp_servers into make_turn_handler so
-    # tool-mcp.mount() receives the dynamic ``servers`` config dict from the
-    # CLI flag.  make_turn_handler does not yet accept an ``mcp_servers``
-    # kwarg (only handle_initialize does, via wire ``params["mcpServers"]``);
-    # wiring lives in Task 15's lint cleanup per the 2026-05-22 §4.8 closure.
     handler = make_turn_handler(
         prepared,
         cwd=spec.cwd,
         is_resumed=spec.resume and not spec.fresh,
+        mcp_servers=spec.mcp_servers,
     )
     engine = Engine(
         turn_handler=handler,
