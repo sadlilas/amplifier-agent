@@ -168,3 +168,137 @@ async def test_host_capabilities_stored_in_session_metadata() -> None:
         f"session.metadata['host_capabilities'] should be {host_caps!r}, "
         f"got {mock_session.metadata.get('host_capabilities')!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# make_turn_handler — CLI path mirror of handle_initialize's wire path.
+# Regression coverage for the phase-A-task-7 gap (TODO removed in this fix):
+# `amplifier-agent run --mcp-servers '<json>'` must reach tool-mcp.mount()
+# the same way the wire's `params["mcpServers"]` does.
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_bundle_for_turn(
+    *,
+    tool_mcp_static_config: dict[str, Any] | None = None,
+) -> tuple[MagicMock, dict[str, Any]]:
+    """Bundle mock for make_turn_handler — captures create_session kwargs."""
+    captured: dict[str, Any] = {}
+
+    mock_session = MagicMock()
+    mock_session.metadata = {}
+    mock_session.coordinator = MagicMock()
+    mock_session.coordinator.hooks = MagicMock()
+    mock_session.coordinator.get = MagicMock(return_value=None)
+    mock_session.execute = AsyncMock(return_value="ok")
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+
+    async def _create_session(**kwargs: Any) -> MagicMock:
+        captured.update(kwargs)
+        return mock_session
+
+    mock_bundle = MagicMock()
+    mock_bundle.config = {
+        "tools": {
+            "tool-mcp": {"config": tool_mcp_static_config or {"verbose_servers": False, "max_content_size": 65536}}
+        }
+    }
+    mock_bundle.mount_plan = {"agents": {}}
+    mock_bundle.create_session = _create_session
+    return mock_bundle, captured
+
+
+@pytest.mark.asyncio
+async def test_make_turn_handler_threads_mcp_servers_to_tool_overrides() -> None:
+    """mcp_servers kwarg must reach create_session(tool_overrides=...) — CLI path."""
+    from amplifier_agent_lib._runtime import make_turn_handler
+
+    mcp_servers = {"test-mcp": {"transport": "stdio", "command": "/usr/bin/echo", "args": ["hi"]}}
+    mock_bundle, captured = _make_mock_bundle_for_turn()
+
+    # Patch the streaming-hook mount so we don't drag the real coordinator in.
+    with patch("amplifier_agent_lib._runtime.SessionStore"), patch(
+        "amplifier_agent_lib.bundle.hook_streaming.mount", AsyncMock(return_value=None)
+    ):
+        handler = make_turn_handler(
+            mock_bundle,
+            cwd=None,
+            is_resumed=False,
+            mcp_servers=mcp_servers,
+        )
+        ctx = MagicMock()
+        ctx.session_id = "sess-test-1"
+        ctx.turn_id = "turn-1"
+        ctx.prompt = "ping"
+        ctx.display = MagicMock()
+        ctx.display.emit = AsyncMock()
+        ctx.approval = MagicMock()
+        ctx.approval.request = AsyncMock()
+        await handler(ctx)
+
+    assert "tool_overrides" in captured, (
+        "make_turn_handler must pass tool_overrides to create_session "
+        "to mirror handle_initialize's wire-path behavior."
+    )
+    tool_mcp_cfg = captured["tool_overrides"]["tool-mcp"]["config"]
+    assert tool_mcp_cfg["servers"] == mcp_servers, (
+        f"tool_overrides['tool-mcp']['config']['servers'] should be {mcp_servers!r}, "
+        f"got {tool_mcp_cfg.get('servers')!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_make_turn_handler_merges_static_config_with_mcp_servers() -> None:
+    """Static bundle config (verbose_servers, max_content_size) must survive the merge."""
+    from amplifier_agent_lib._runtime import make_turn_handler
+
+    mcp_servers = {"nano-mcp": {"transport": "sse", "url": "http://localhost:9999"}}
+    static = {"verbose_servers": False, "max_content_size": 65536}
+    mock_bundle, captured = _make_mock_bundle_for_turn(tool_mcp_static_config=static)
+
+    with patch("amplifier_agent_lib._runtime.SessionStore"), patch(
+        "amplifier_agent_lib.bundle.hook_streaming.mount", AsyncMock(return_value=None)
+    ):
+        handler = make_turn_handler(
+            mock_bundle, cwd=None, is_resumed=False, mcp_servers=mcp_servers
+        )
+        ctx = MagicMock()
+        ctx.session_id = "sess-test-2"
+        ctx.turn_id = "turn-1"
+        ctx.prompt = "ping"
+        ctx.display = MagicMock()
+        ctx.display.emit = AsyncMock()
+        ctx.approval = MagicMock()
+        ctx.approval.request = AsyncMock()
+        await handler(ctx)
+
+    tool_mcp_cfg = captured["tool_overrides"]["tool-mcp"]["config"]
+    assert tool_mcp_cfg.get("verbose_servers") is False
+    assert tool_mcp_cfg.get("max_content_size") == 65536
+    assert tool_mcp_cfg.get("servers") == mcp_servers
+
+
+@pytest.mark.asyncio
+async def test_make_turn_handler_default_mcp_servers_none_is_empty_dict() -> None:
+    """When mcp_servers is None (CLI flag omitted), tool_overrides still passes servers={}."""
+    from amplifier_agent_lib._runtime import make_turn_handler
+
+    mock_bundle, captured = _make_mock_bundle_for_turn()
+
+    with patch("amplifier_agent_lib._runtime.SessionStore"), patch(
+        "amplifier_agent_lib.bundle.hook_streaming.mount", AsyncMock(return_value=None)
+    ):
+        handler = make_turn_handler(mock_bundle, cwd=None, is_resumed=False)
+        ctx = MagicMock()
+        ctx.session_id = "sess-test-3"
+        ctx.turn_id = "turn-1"
+        ctx.prompt = "ping"
+        ctx.display = MagicMock()
+        ctx.display.emit = AsyncMock()
+        ctx.approval = MagicMock()
+        ctx.approval.request = AsyncMock()
+        await handler(ctx)
+
+    assert "tool_overrides" in captured
+    assert captured["tool_overrides"]["tool-mcp"]["config"]["servers"] == {}
