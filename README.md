@@ -23,15 +23,19 @@ The Mode A wire protocol is intentionally simple: the engine takes a single invo
 
 ## Install
 
+The Python engine is not yet published to PyPI — install directly from the tagged git release:
+
 ```bash
-uv tool install amplifier-agent
+uv tool install "amplifier-agent @ git+https://github.com/microsoft/amplifier-agent@engine-v0.3.0"
 amplifier-agent doctor       # verify environment
 ```
 
 Other install methods:
 
-- `pipx install amplifier-agent`
-- From source: `git clone … && cd amplifier-agent && uv sync && uv tool install -e .`
+- `pipx install "amplifier-agent @ git+https://github.com/microsoft/amplifier-agent@engine-v0.3.0"`
+- From source: `git clone https://github.com/microsoft/amplifier-agent.git && cd amplifier-agent && uv sync && uv tool install -e .`
+
+The current engine tag is `engine-v0.3.0`. Wrapper releases are tagged separately (e.g. `wrapper-v0.4.0`) — see `git tag -l` for the full list.
 
 First-run will prepare the built-in bundle and cache it to `$XDG_CACHE_HOME/amplifier-agent/`. Subsequent invocations skip this step.
 
@@ -145,6 +149,39 @@ await engine.shutdown()
 ```
 
 `Engine.boot()` is an instance method that takes a params dict. The constructor requires both `turn_handler` (built from a `PreparedBundle`) and the `protocol_points` dict. See `src/amplifier_agent_lib/` for the full library surface.
+
+## TypeScript / Node.js SDK
+
+For Node.js and TypeScript hosts, use the `amplifier-agent-ts` npm package. It is a thin process supervisor that spawns the Python `amplifier-agent` CLI per turn (Mode A) and exposes a typed async API — all inference, tool execution, and session state live in the Python engine.
+
+You need **both** packages installed: the npm SDK *and* the Python engine (see [Install](#install) above — the Python CLI must be on `PATH`).
+
+```bash
+npm install amplifier-agent-ts
+```
+
+```typescript
+import { spawnAgent, AaaError } from 'amplifier-agent-ts';
+import { randomUUID } from 'node:crypto';
+
+const session = await spawnAgent({
+  lifecycle: 'one-shot',
+  sessionId: randomUUID(),
+});
+
+try {
+  const result = await session.submit({ prompt: 'Hello, agent.' });
+  console.log(result.reply);
+} catch (err) {
+  if (err instanceof AaaError) {
+    console.error(`[${err.code}] ${err.message}`);
+  } else {
+    throw err;
+  }
+}
+```
+
+Requires Node.js ≥ 20. Zero npm runtime dependencies. Full API surface in [`wrappers/typescript/README.md`](wrappers/typescript/README.md) and the type definitions at `wrappers/typescript/dist/index.d.ts`. The Python sibling SDK lives at [`wrappers/python/`](wrappers/python/).
 
 ## Architecture at a glance
 
