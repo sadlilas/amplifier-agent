@@ -23,17 +23,20 @@ The Mode A wire protocol is intentionally simple: the engine takes a single invo
 
 ## Install
 
-The Python engine is not yet published to any package registry. Install from source:
+The Python engine is not yet published to a package registry, but `uv tool install` installs it directly from git:
 
 ```bash
-git clone https://github.com/microsoft/amplifier-agent.git
-cd amplifier-agent
-uv sync
-uv tool install -e .
+uv tool install git+https://github.com/microsoft/amplifier-agent
 amplifier-agent doctor       # verify environment
 ```
 
-Engine and wrapper releases are tagged separately — `engine-v0.3.0` and `wrapper-v0.4.0` respectively. Check out a specific tag (`git checkout engine-v0.3.0`) before `uv tool install -e .` if you need a pinned version. Run `git tag -l` to see the full list.
+Pin to a specific engine release by appending a tag:
+
+```bash
+uv tool install git+https://github.com/microsoft/amplifier-agent@engine-v0.3.0
+```
+
+Engine and wrapper releases are tagged separately (`engine-v0.3.0`, `wrapper-v0.4.0`). For local development against a checkout, `git clone` the repo and run `uv tool install -e .` from inside it.
 
 First-run will prepare the built-in bundle and cache it to `$XDG_CACHE_HOME/amplifier-agent/`. Subsequent invocations skip this step.
 
