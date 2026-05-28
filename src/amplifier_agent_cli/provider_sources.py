@@ -60,7 +60,11 @@ PROVIDER_CATALOG: Final[dict[str, _CatalogEntry]] = {
         "module": "provider-openai",
         "source": "git+https://github.com/microsoft/amplifier-module-provider-openai@main",
         "env_var": "OPENAI_API_KEY",
-        "default_model": "gpt-4o",
+        # gpt-5.5 chosen so the bundle's default `extended_thinking: true` lands
+        # on a model that actually accepts the resulting `reasoning.effort`
+        # parameter. With gpt-4o (non-reasoning), the OpenAI API 400s on every
+        # turn out of the box. Consumers can override via bundle config.
+        "default_model": "gpt-5.5",
     },
     "azure-openai": {
         "module": "provider-azure-openai",
