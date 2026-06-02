@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from amplifier_agent_lib import __version__
 from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
+from amplifier_agent_lib.config import merge_config
 from amplifier_agent_lib.engine import TurnContext, TurnHandler
 from amplifier_agent_lib.incremental_save import IncrementalSaveHook
 from amplifier_agent_lib.persistence import state_root
@@ -37,6 +38,7 @@ def make_turn_handler(
     cwd: str | None,
     is_resumed: bool,
     mcp_config_path: str | None = None,
+    host_config: dict[str, Any] | None = None,
 ) -> TurnHandler:
     """Return a TurnHandler closed over the loaded PreparedBundle.
 
@@ -80,6 +82,20 @@ def make_turn_handler(
     # format; the engine just routes the path.
     if mcp_config_path:
         os.environ["AMPLIFIER_MCP_CONFIG"] = mcp_config_path
+
+    # D5: Overlay host-supplied config over the bundle's static module
+    # configs at the bundle-mount seam.  ``merge_config`` deep-copies the
+    # bundle dict so the merge cannot reach back into the bundle's declared
+    # config; we write only the merged dict back into ``mount_plan`` so
+    # foundation's mount logic sees the host overrides.  The ``agents`` key
+    # is owned by the loader (it is not a module config block) and is left
+    # untouched.
+    merged_modules, _allow_skew = merge_config(
+        bundle_modules=dict(prepared.mount_plan or {}),
+        host_config=host_config,
+    )
+    if prepared.mount_plan is not None:
+        prepared.mount_plan.update({k: v for k, v in merged_modules.items() if k != "agents"})
 
     # Pre-hydrate agent overlays from the vendored agent markdown files.
     # This is done once at handler-creation time (cold path) so each turn

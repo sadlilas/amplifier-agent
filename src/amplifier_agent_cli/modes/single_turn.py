@@ -352,6 +352,7 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
         cwd=spec.cwd,
         is_resumed=spec.resume and not spec.fresh,
         mcp_config_path=spec.mcp_config_path,
+        host_config=spec.host_config,
     )
     engine = Engine(
         turn_handler=handler,
