@@ -180,6 +180,37 @@ def test_config_show_emits_parsed_values(runner: CliRunner, tmp_path: Path, monk
     }
 
 
+def test_config_show_succeeds_when_config_malformed(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """config show stays exit-0 and surfaces parse_error when host config is malformed (D8).
+
+    Operators must be able to locate the offending file *before* they can
+    debug its contents. So even when load_config raises a ConfigError, the
+    diagnostic command exits 0, reports path + source, sets parsed=None,
+    and attaches parse_error={code,message} for the loader's error code.
+    """
+    cfg = tmp_path / "host.json"
+    # Truncated JSON: valid prefix, no closing braces. Triggers
+    # json.JSONDecodeError inside load_config, which maps to
+    # ConfigError(code='config_malformed_json').
+    cfg.write_text('{"mcp": {"verbose_servers": true,', encoding="utf-8")
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "ANTHROPIC_API_KEY": "sk-test",
+    }
+    result = runner.invoke(cli, ["config", "show", "--config", str(cfg)], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["path"] == str(cfg)
+    assert parsed["host_config"]["source"] == "--config flag"
+    assert parsed["host_config"]["parsed"] is None
+    assert parsed["host_config"]["parse_error"]["code"] == "config_malformed_json"
+
+
 def test_config_show_reports_bundle_default_even_with_no_env_vars(runner: CliRunner, tmp_path: Path) -> None:
     """Provider resolution is decoupled from env vars (E5/D6).
 
