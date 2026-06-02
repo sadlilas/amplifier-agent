@@ -18,9 +18,10 @@ with ``classification='protocol'`` (exit code 2 per
 
 from __future__ import annotations
 
+from amplifier_agent_lib.config.loader import load_config
 from amplifier_agent_lib.protocol.errors import AaaError
 
-__all__ = ["ConfigError"]
+__all__ = ["ConfigError", "load_config"]
 
 
 class ConfigError(AaaError):

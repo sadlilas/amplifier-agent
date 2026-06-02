@@ -1,4 +1,4 @@
-"""Tests for amplifier_agent_lib.config package skeleton (B1).
+"""Tests for amplifier_agent_lib.config package skeleton (B1) and loader (B2+).
 
 Verifies that ConfigError is a proper AaaError subclass that propagates
 code/classification/message correctly so the CLI's existing
@@ -8,7 +8,9 @@ classification='protocol' (exit code 2 per _EXIT_CODE_BY_CLASSIFICATION).
 
 from __future__ import annotations
 
-from amplifier_agent_lib.config import ConfigError
+import pytest
+
+from amplifier_agent_lib.config import ConfigError, load_config
 from amplifier_agent_lib.protocol.errors import AaaError
 
 
@@ -25,3 +27,11 @@ def test_config_error_carries_code_classification_message() -> None:
     assert exc.code == "config_unreadable"
     assert exc.classification == "protocol"
     assert exc.message == "not found"
+
+
+def test_load_config_returns_none_when_no_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1: returns None when neither --config arg nor env var is present."""
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    assert load_config(config_arg=None) is None
