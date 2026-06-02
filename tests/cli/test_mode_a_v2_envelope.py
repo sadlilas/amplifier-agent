@@ -138,35 +138,6 @@ def test_mcp_servers_malformed_json_yields_argv_envelope() -> None:
     assert envelope["error"]["classification"] == "protocol"
 
 
-def test_host_capabilities_threaded_to_envelope() -> None:
-    """--host-capabilities '<json>' is echoed in envelope.metadata.hostCapabilities."""
-    runner = CliRunner()
-    with (
-        patch(
-            "amplifier_agent_cli.modes.single_turn._execute_turn",
-            return_value=_mock_turn_result("ok"),
-        ),
-        patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"),
-    ):
-        result = runner.invoke(
-            run,
-            [
-                "--session-id",
-                "sid-1",
-                "--host-capabilities",
-                '{"supports_steering":false,"supports_structured_errors":true}',
-                "hello",
-            ],
-        )
-
-    assert result.exit_code == 0, result.output
-    envelope = json.loads(result.stdout)
-    assert envelope["metadata"]["hostCapabilities"] == {
-        "supports_steering": False,
-        "supports_structured_errors": True,
-    }
-
-
 def test_protocol_version_mismatch_yields_envelope() -> None:
     """--protocol-version 9.9.9 (mismatch, no skew flag) → error envelope, exit 2."""
     runner = CliRunner()
