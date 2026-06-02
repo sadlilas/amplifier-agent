@@ -176,7 +176,6 @@ def _write_audit(
     mcp_config_path: str | None,
     env_allowlist: list[str] | None,
     env_extra: dict[str, Any] | None,
-    host_capabilities: dict[str, Any] | None,
     protocol_version: str,
 ) -> None:
     """SC-H — write per-turn audit digest. Secrets are sha256'd, never literal."""
@@ -192,7 +191,6 @@ def _write_audit(
         # correlation without dragging file I/O into the audit path.
         "mcpConfigPathDigest": (_sha256(mcp_config_path) if mcp_config_path else None),
         "envDigest": _sha256(json.dumps({"allow": env_allowlist or [], "extra": env_extra or {}}, sort_keys=True)),
-        "hostCapabilities": host_capabilities,
         "protocolVersion": protocol_version,
         "exitCode": exit_code,
         "correlationId": correlation_id,
@@ -527,7 +525,6 @@ def run(
     # env_extra and env_allowlist are parsed here but threaded into the engine
     # subprocess wiring in a later task (D12' completion); the surface is
     # exposed now so wrappers can begin passing them without an interface bump.
-    host_capabilities = None  # transitional — removed in subsequent commits
     env_extra = _parse_json_or_atpath(env_extra_raw, flag_name="--env-extra")
     env_allowlist = [k.strip() for k in env_allowlist_raw.split(",") if k.strip()] if env_allowlist_raw else None
 
@@ -602,7 +599,6 @@ def run(
             mcp_config_path=mcp_config_path,
             env_allowlist=env_allowlist,
             env_extra=env_extra,
-            host_capabilities=host_capabilities,
             protocol_version=PROTOCOL_VERSION,
         )
         sys.exit(exit_code)
@@ -629,7 +625,6 @@ def run(
             mcp_config_path=mcp_config_path,
             env_allowlist=env_allowlist,
             env_extra=env_extra,
-            host_capabilities=host_capabilities,
             protocol_version=PROTOCOL_VERSION,
         )
         sys.exit(1)
@@ -658,6 +653,5 @@ def run(
         mcp_config_path=mcp_config_path,
         env_allowlist=env_allowlist,
         env_extra=env_extra,
-        host_capabilities=host_capabilities,
         protocol_version=PROTOCOL_VERSION,
     )

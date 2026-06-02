@@ -4,9 +4,11 @@ These tests assert that the field is GONE. They will be removed (or kept
 as guardrails — choose at PR time) once the cleanup lands.
 """
 
+import json
+
 from click.testing import CliRunner
 
-from amplifier_agent_cli.modes.single_turn import _build_envelope, _build_error_envelope, run
+from amplifier_agent_cli.modes.single_turn import _build_envelope, _build_error_envelope, _write_audit, run
 
 
 def test_host_capabilities_flag_not_in_help() -> None:
@@ -51,3 +53,34 @@ def test_error_envelope_metadata_excludes_host_capabilities() -> None:
         duration_ms=42,
     )
     assert "hostCapabilities" not in envelope["metadata"], "hostCapabilities must not appear in error envelope metadata"
+
+
+def test_audit_dict_excludes_host_capabilities(tmp_path, monkeypatch) -> None:
+    """_write_audit must not accept host_capabilities and must not emit it."""
+    # Patch session_state_dir to a tmp_path-based location.
+    from amplifier_agent_lib import persistence
+
+    def _fake_state_dir(session_id: str):
+        return tmp_path / session_id
+
+    monkeypatch.setattr(persistence, "session_state_dir", _fake_state_dir)
+
+    session_id = "sess-1"
+    turn_id = "turn-1"
+    _write_audit(
+        session_id=session_id,
+        turn_id=turn_id,
+        correlation_id="corr-1",
+        exit_code=0,
+        started_at="2026-06-01T00:00:00+00:00",
+        ended_at="2026-06-01T00:00:01+00:00",
+        argv=["amplifier-agent", "run", "hello"],
+        mcp_config_path=None,
+        env_allowlist=None,
+        env_extra=None,
+        protocol_version="2026-05-01",
+    )
+
+    audit_file = tmp_path / session_id / "audits" / f"turn-{turn_id}.json"
+    audit = json.loads(audit_file.read_text(encoding="utf-8"))
+    assert "hostCapabilities" not in audit, "hostCapabilities must not appear in per-turn audit record"
