@@ -315,21 +315,11 @@ def test_run_missing_prompt_and_non_tty_fails_with_prompt_required(
 
 
 # ---------------------------------------------------------------------------
-# Test 14: no provider configured → JSON error on stdout, exit 1
+# Test 14 (removed): no-provider-configured envelope no longer surfaces here.
+#   Removed as part of E5 (D6): the CLI no longer routes provider selection
+#   through env-var auto-detection; the bundle default_provider fallback (or a
+#   downstream provider-module error) replaces that contract.
 # ---------------------------------------------------------------------------
-
-
-def test_run_no_provider_configured_errors(
-    runner: CliRunner,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When no provider env vars are set, exit 1 and JSON error.code on stdout."""
-    for var in _PROVIDER_ENV_VARS:
-        monkeypatch.delenv(var, raising=False)
-    result = runner.invoke(cli, ["run", "some prompt"])
-    assert result.exit_code == 1
-    parsed = json.loads(result.stdout)
-    assert parsed["error"]["code"] == "provider_not_configured"
 
 
 # ---------------------------------------------------------------------------
@@ -350,3 +340,104 @@ def test_run_engine_raising_aaa_error_returns_json_envelope(
     parsed = json.loads(result.stdout)
     assert parsed["error"]["code"] == "bundle_load_failed"
     assert parsed["error"]["message"] == "bad bundle"
+
+
+# ---------------------------------------------------------------------------
+# Test D2: --config flag is forwarded to load_config and host_config lands on _TurnSpec
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Test E1: --env-allowlist flag is removed (D10)
+# ---------------------------------------------------------------------------
+
+
+def test_env_allowlist_flag_is_removed(runner: CliRunner) -> None:
+    """`--env-allowlist` is no longer a recognised CLI option (D10).
+
+    The flag was subsumed by the host config layer (E1). Click must reject
+    the unknown option with a non-zero exit code and a 'no such option'
+    style diagnostic.
+    """
+    result = runner.invoke(cli, ["run", "--env-allowlist", "PATH", "hello"])
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit because --env-allowlist is removed, got {result.exit_code}. Output:\n{result.output}"
+    )
+    haystack = (result.output or "").lower() + " " + str(result.exception or "").lower()
+    assert "no such option" in haystack, (
+        f"Expected click 'no such option' diagnostic, got:\n{result.output}\nException: {result.exception}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test E2: --env-extra flag is removed (D10)
+# ---------------------------------------------------------------------------
+
+
+def test_env_extra_flag_is_removed(runner: CliRunner) -> None:
+    """`--env-extra` is no longer a recognised CLI option (D10).
+
+    The flag was subsumed by the host config layer (E2). Click must reject
+    the unknown option with a non-zero exit code and a 'no such option'
+    style diagnostic.
+    """
+    result = runner.invoke(cli, ["run", "--env-extra", "{}", "hello"])
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit because --env-extra is removed, got {result.exit_code}. Output:\n{result.output}"
+    )
+    haystack = (result.output or "").lower() + " " + str(result.exception or "").lower()
+    assert "no such option" in haystack, (
+        f"Expected click 'no such option' diagnostic, got:\n{result.output}\nException: {result.exception}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test E3: --allow-protocol-skew flag is removed (D10)
+# ---------------------------------------------------------------------------
+
+
+def test_allow_protocol_skew_flag_is_removed(runner: CliRunner) -> None:
+    """`--allow-protocol-skew` is no longer a recognised CLI option (D10).
+
+    The flag was subsumed by the host config layer (E3 / D10). Click must
+    reject the unknown option with a non-zero exit code and a 'no such
+    option' style diagnostic. Wrappers now express the (unsafe) override
+    via ``allowProtocolSkew: true`` in the --config file.
+    """
+    result = runner.invoke(cli, ["run", "--allow-protocol-skew", "hello"])
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit because --allow-protocol-skew is removed, got {result.exit_code}. Output:\n{result.output}"
+    )
+    haystack = (result.output or "").lower() + " " + str(result.exception or "").lower()
+    assert "no such option" in haystack, (
+        f"Expected click 'no such option' diagnostic, got:\n{result.output}\nException: {result.exception}"
+    )
+
+
+def test_run_loads_config_and_forwards_to_spec(
+    runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """--config <path> calls load_config(config_arg=<path>) and forwards the result to _TurnSpec."""
+    _set_anthropic(monkeypatch)
+    # Write a config file (load_config is patched below so contents are irrelevant for the call,
+    # but the file must look real for click.Path() validation in case it gains exists=True later).
+    cfg = tmp_path / "host.json"
+    cfg.write_text("{}", encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+    sentinel_host_config = {"defaults": {"approval": {"mode": "yes"}}}
+
+    def _fake_load_config(config_arg=None):
+        captured["arg"] = config_arg
+        return sentinel_host_config
+
+    patch_exec, exec_captured = _patch_execute_turn()
+    with patch("amplifier_agent_cli.modes.single_turn.load_config", _fake_load_config), patch_exec:
+        result = runner.invoke(cli, ["run", "--config", str(cfg), "hello"])
+
+    assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}. Output:\n{result.output}"
+    assert captured["arg"] == str(cfg)
+    assert len(exec_captured) == 1
+    assert exec_captured[0].host_config is sentinel_host_config

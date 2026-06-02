@@ -102,7 +102,6 @@ def test_expected_fixture_set_is_complete() -> None:
         "resume_continuity",
         # A8 wire-shape conformance fixtures
         "initialize-with-mcp-config-path",
-        "initialize-with-host-capabilities",
         "approval-shim-three-error-codes",
         "resume-with-session-store",
     }

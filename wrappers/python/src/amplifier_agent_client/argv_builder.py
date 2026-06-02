@@ -12,7 +12,6 @@ layer; approvals are handled by the orchestrating host, not the engine.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 
 def assemble_argv(
@@ -24,7 +23,6 @@ def assemble_argv(
     cwd: str | None = None,
     provider_override: str | None = None,
     mcp_config_path: str | None = None,
-    host_capabilities: Any | None = None,
     env_allowlist: list[str] | None = None,
     env_extra: dict[str, str] | None = None,
     allow_protocol_skew: bool = False,
@@ -45,8 +43,6 @@ def assemble_argv(
             ``resolve_mcp_config_path``. Passed to the engine as
             `--mcp-config-path <path>`; the engine sets ``AMPLIFIER_MCP_CONFIG``
             so the tool-mcp module loads it during mount.
-        host_capabilities: Host capabilities object — emitted as
-            `--host-capabilities <JSON>`.
         env_allowlist: Allowlisted env variable names — emits
             `--env-allowlist <comma-joined>`.
         env_extra: Extra env entries — emitted as `--env-extra <JSON>`.
@@ -68,8 +64,6 @@ def assemble_argv(
         argv.extend(["--provider", provider_override])
     if mcp_config_path is not None:
         argv.extend(["--mcp-config-path", mcp_config_path])
-    if host_capabilities is not None:
-        argv.extend(["--host-capabilities", json.dumps(host_capabilities)])
     if env_allowlist is not None and len(env_allowlist) > 0:
         argv.extend(["--env-allowlist", ",".join(env_allowlist)])
     if env_extra is not None:

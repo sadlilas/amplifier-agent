@@ -45,20 +45,14 @@ describe("assembleArgv", () => {
     expect(argv).not.toContain("--fresh");
   });
 
-  it("(iii) --host-capabilities threaded as JSON string and parseable", () => {
-    const caps = { fs: { read: true }, net: false };
+  it("(iii) --host-capabilities is not emitted (removed surface)", () => {
     const input: AssembleArgvInput = {
       sessionId: "sid",
       prompt: "hello",
       protocolVersion: "0.2.0",
-      hostCapabilities: caps,
     };
     const argv = assembleArgv(input);
-    const idx = argv.indexOf("--host-capabilities");
-    expect(idx).toBeGreaterThanOrEqual(0);
-    const jsonArg = argv[idx + 1];
-    expect(typeof jsonArg).toBe("string");
-    expect(JSON.parse(jsonArg as string)).toEqual(caps);
+    expect(argv).not.toContain("--host-capabilities");
   });
 
   it("(iv) --mcp-config-path threaded as plain path", () => {
@@ -73,5 +67,15 @@ describe("assembleArgv", () => {
     const idx = argv.indexOf("--mcp-config-path");
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(argv[idx + 1]).toBe(configPath);
+  });
+
+  it("(removal) AssembleArgvInput does not expose hostCapabilities", () => {
+    const input: AssembleArgvInput = {
+      sessionId: "sid",
+      prompt: "hello",
+      protocolVersion: "0.1.0",
+    };
+    const argv = assembleArgv(input);
+    expect(argv.filter((a) => a.includes("host"))).toEqual([]);
   });
 });

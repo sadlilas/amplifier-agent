@@ -1,9 +1,14 @@
 """Tests for Gap (c) — threading CLI flags (--session-id / --resume / --provider / --cwd)
 through Engine.boot() init_params in single_turn._execute_turn.
 
-2 tests covering:
+1 test covering:
   1. test_run_passes_cwd_to_make_turn_handler
-  2. test_run_passes_provider_override_to_detect_provider
+
+Note: a second test asserting env-var-based provider auto-detection was
+removed in E5 — that mechanism no longer exists (D6). Provider selection now
+flows from config / bundle.md ``default_provider``; the ``--provider`` flag's
+plumbing into ``init_params['providerOverride']`` is covered by Mode A v2
+envelope tests.
 """
 
 from __future__ import annotations
@@ -72,7 +77,7 @@ def test_run_passes_cwd_to_make_turn_handler() -> None:
     """
     captured: dict[str, Any] = {}
 
-    def _fake_make_turn_handler(prepared: Any, *, cwd: Any, is_resumed: Any) -> Any:
+    def _fake_make_turn_handler(prepared: Any, *, cwd: Any, is_resumed: Any, **_kwargs: Any) -> Any:
         captured["cwd"] = cwd
         captured["is_resumed"] = is_resumed
 
@@ -87,7 +92,10 @@ def test_run_passes_cwd_to_make_turn_handler() -> None:
     with (
         patch("amplifier_agent_cli.modes.single_turn.load_and_prepare_cached", _fake_load),
         patch("amplifier_agent_cli.provider_sources.inject_provider"),
-        patch("amplifier_agent_cli.modes.single_turn.detect_provider", return_value="anthropic"),
+        patch(
+            "amplifier_agent_cli.modes.single_turn._read_bundle_default_provider",
+            return_value="anthropic",
+        ),
         patch("amplifier_agent_cli.modes.single_turn.Engine", FakeEngine),
         patch("amplifier_agent_cli.modes.single_turn.make_turn_handler", _fake_make_turn_handler),
     ):
@@ -111,58 +119,4 @@ def test_run_passes_cwd_to_make_turn_handler() -> None:
     )
     assert captured["init_params"]["cwd"] == "/tmp", (
         f"Expected init_params['cwd']='/tmp', got {captured['init_params'].get('cwd')!r}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test 2: --provider override reaches detect_provider AND Engine.boot init_params
-# ---------------------------------------------------------------------------
-
-
-def test_run_passes_provider_override_to_detect_provider() -> None:
-    """--provider anthropic reaches detect_provider (override='anthropic') AND
-    is included in init_params sent to Engine.boot as 'providerOverride' (gap c).
-
-    Part one (detect_provider assertion) tests existing plumbing.
-    Part two (init_params assertion) is the TDD RED gate that fails until
-    single_turn._execute_turn adds providerOverride to the init_params dict.
-    """
-    captured: dict[str, Any] = {}
-
-    def _fake_detect_provider(override: str | None = None) -> str:
-        captured["override"] = override
-        return "anthropic"
-
-    def _fake_make_turn_handler(prepared: Any, *, cwd: Any, is_resumed: Any) -> Any:
-        async def _noop(ctx: Any) -> str:
-            return "noop"
-
-        return _noop
-
-    FakeEngine = _make_fake_engine(captured)
-
-    runner = CliRunner()
-    with (
-        patch("amplifier_agent_cli.modes.single_turn.load_and_prepare_cached", _fake_load),
-        patch("amplifier_agent_cli.provider_sources.inject_provider"),
-        patch("amplifier_agent_cli.modes.single_turn.detect_provider", _fake_detect_provider),
-        patch("amplifier_agent_cli.modes.single_turn.Engine", FakeEngine),
-        patch("amplifier_agent_cli.modes.single_turn.make_turn_handler", _fake_make_turn_handler),
-    ):
-        result = runner.invoke(cli, ["run", "hello", "--provider", "anthropic"])
-
-    assert result.exit_code == 0, f"Expected exit 0. Output: {result.output}"
-
-    # --- existing plumbing (already works) ---
-    assert captured.get("override") == "anthropic", (
-        f"detect_provider should receive override='anthropic', got {captured.get('override')!r}"
-    )
-
-    # --- gap (c): init_params must include providerOverride ---
-    assert "providerOverride" in captured.get("init_params", {}), (
-        "Engine.boot init_params must include 'providerOverride' when --provider is passed. "
-        f"Got init_params keys: {list(captured.get('init_params', {}).keys())}"
-    )
-    assert captured["init_params"]["providerOverride"] == "anthropic", (
-        f"Expected init_params['providerOverride']='anthropic', got {captured['init_params'].get('providerOverride')!r}"
     )

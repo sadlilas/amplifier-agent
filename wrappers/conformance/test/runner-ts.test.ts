@@ -36,13 +36,6 @@ describe("conformance runner (typescript)", () => {
     expect(report.passed).toBe(true);
   });
 
-  it("initialize_with_host_capabilities passes", async () => {
-    const report = await runFixture(
-      `${FIXTURES_DIR}/initialize-with-host-capabilities.yaml`,
-    );
-    expect(report.passed).toBe(true);
-  });
-
   it("approval_shim_three_error_codes passes", async () => {
     const report = await runFixture(
       `${FIXTURES_DIR}/approval-shim-three-error-codes.yaml`,

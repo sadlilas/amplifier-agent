@@ -79,34 +79,46 @@ def test_doctor_all_green_exits_0(
     assert "OK" in result.output, f"Expected 'OK' in output:\n{result.output}"
 
 
-def test_doctor_reports_provider_status(
+def test_doctor_reports_bundle_default_provider_status(
     runner: CliRunner,
     writable_xdg: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With OPENAI_API_KEY set, output should mention 'provider' and 'openai'."""
+    """doctor reports the bundle.md ``default_provider`` field (E5/D6).
+
+    Env vars no longer drive doctor's provider check. The vendored bundle.md
+    ships ``default_provider: anthropic``, so doctor must mention 'provider'
+    and 'anthropic' in its output regardless of env var state.
+    """
     _clear_providers(monkeypatch)
+    # Set an unrelated env var to confirm it does NOT influence the report.
     env = {**writable_xdg, "OPENAI_API_KEY": "sk-openai-test"}
     result = runner.invoke(cli, ["doctor"], env=env)
     output_lower = result.output.lower()
     assert "provider" in output_lower, f"Expected 'provider' in output:\n{result.output}"
-    assert "openai" in result.output.lower(), f"Expected 'openai' in output:\n{result.output}"
+    assert "anthropic" in output_lower, (
+        f"Expected bundle default 'anthropic' in output (env vars no longer used):\n{result.output}"
+    )
 
 
-def test_doctor_fails_when_no_provider(
+def test_doctor_passes_when_no_env_vars_but_bundle_has_default(
     runner: CliRunner,
     writable_xdg: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When no provider env vars are set, exit 1, 'FAIL' and 'provider' in output."""
+    """With no provider env vars set, doctor still passes the provider check
+    because bundle.md declares ``default_provider`` (E5/D6).
+    """
     _clear_providers(monkeypatch)
     result = runner.invoke(cli, ["doctor"], env=writable_xdg)
-    assert result.exit_code == 1, (
-        f"Expected exit 1 when no provider set, got {result.exit_code}. Output:\n{result.output}"
+    assert result.exit_code == 0, (
+        f"Expected exit 0 (bundle declares default_provider), got {result.exit_code}. Output:\n{result.output}"
     )
     output_lower = result.output.lower()
-    assert "fail" in output_lower, f"Expected 'fail' in output:\n{result.output}"
-    assert "provider" in output_lower, f"Expected 'provider' in output:\n{result.output}"
+    assert "ok" in output_lower, f"Expected '[ OK ]' lines in output:\n{result.output}"
+    assert "default_provider" in output_lower or "provider" in output_lower, (
+        f"Expected 'provider' or 'default_provider' line in output:\n{result.output}"
+    )
 
 
 def test_doctor_reports_xdg_paths(
@@ -205,6 +217,21 @@ def test_doctor_does_not_call_load_and_prepare_cached() -> None:
     source = inspect.getsource(doctor_module)
     assert "load_and_prepare_cached" not in source, (
         "doctor.py must not call load_and_prepare_cached; cache priming belongs to the 'prepare' command."
+    )
+
+
+def test_doctor_uses_persistence_for_xdg_paths() -> None:
+    """doctor.py must not define a local _xdg() helper.
+
+    Per D9, XDG path lookup is consolidated through
+    amplifier_agent_lib.persistence.{config_root,cache_root,state_root}.
+    The previous private _xdg() helper in admin/doctor.py is a duplicate
+    of the persistence-layer logic and must be removed.
+    """
+    from amplifier_agent_cli.admin import doctor as doctor_mod
+
+    assert hasattr(doctor_mod, "_xdg") is False, (
+        "doctor.py must not define _xdg(); use persistence.config_root() / cache_root() / state_root() instead (D9)."
     )
 
 

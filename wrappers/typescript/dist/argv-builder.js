@@ -29,9 +29,6 @@ export function assembleArgv(input) {
     if (input.mcpConfigPath !== undefined) {
         argv.push("--mcp-config-path", input.mcpConfigPath);
     }
-    if (input.hostCapabilities !== undefined) {
-        argv.push("--host-capabilities", JSON.stringify(input.hostCapabilities));
-    }
     if (input.envAllowlist !== undefined && input.envAllowlist.length > 0) {
         argv.push("--env-allowlist", input.envAllowlist.join(","));
     }

@@ -30,7 +30,10 @@ def test_noisy_module_prints_do_not_corrupt_envelope() -> None:
     runner = CliRunner()
     with (
         patch("amplifier_agent_cli.modes.single_turn._execute_turn", side_effect=noisy_execute),
-        patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"),
+        patch(
+            "amplifier_agent_cli.modes.single_turn._read_bundle_default_provider",
+            return_value="anthropic",
+        ),
     ):
         result = runner.invoke(run, ["--session-id", "sid-1", "hello"])
 

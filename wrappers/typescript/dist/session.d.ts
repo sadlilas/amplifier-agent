@@ -23,7 +23,7 @@
  *   - `dispose()` is a synonym for `cancel()`.
  */
 import type { ChildProcess } from "node:child_process";
-import type { McpServerConfig, HostCapabilities } from "./types.js";
+import type { McpServerConfig } from "./types.js";
 /**
  * A display event yielded by `SessionHandle.submit()`.
  *
@@ -91,8 +91,6 @@ export interface SessionHandleParams {
     cwd?: string;
     /** MCP servers to forward via `--mcp-config-path` (CR-A spill applies). */
     mcpServers?: Record<string, McpServerConfig>;
-    /** Host capabilities forwarded via `--host-capabilities`. */
-    hostCapabilities?: HostCapabilities;
     /** Allowlisted env variable names forwarded via `--env-allowlist`. */
     envAllowlist?: string[];
     /** Extra env entries forwarded via `--env-extra`. */

@@ -20,11 +20,12 @@ from typing import Any
 
 import click
 
-from amplifier_agent_cli.provider_detect import ProviderNotConfigured, detect_provider
 from amplifier_agent_cli.tty_detect import is_stdin_tty
 from amplifier_agent_lib import __version__
 from amplifier_agent_lib._runtime import make_turn_handler
+from amplifier_agent_lib.bundle import BUNDLE_MD
 from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
+from amplifier_agent_lib.config import ConfigError, load_config
 from amplifier_agent_lib.engine import Engine
 from amplifier_agent_lib.protocol import PROTOCOL_VERSION, server_default_capabilities
 from amplifier_agent_lib.protocol.errors import AaaError
@@ -38,6 +39,32 @@ from amplifier_agent_lib.protocol_points.defaults_cli import CliApprovalSystem, 
 def _emit_error(code: str, message: str) -> None:
     """Write a JSON error envelope to stdout."""
     click.echo(json.dumps({"error": {"code": code, "message": message}}, indent=2))
+
+
+def _read_bundle_default_provider() -> str:
+    """Read ``default_provider:`` from the vendored bundle.md manifest (D6).
+
+    The bundle.md ships a top-level ``default_provider:`` field that names the
+    fallback provider when neither ``--provider`` nor ``host.provider.module``
+    is configured. Missing/non-string values are bundle integrity errors and
+    raise ``AaaError(code='bundle_load_failed')``.
+    """
+    import yaml
+
+    text = BUNDLE_MD.read_text(encoding="utf-8")
+    parts = text.split("---\n")
+    manifest = yaml.safe_load(parts[1]) or {}
+    default = manifest.get("default_provider")
+    if not isinstance(default, str):
+        raise AaaError(
+            code="bundle_load_failed",
+            message=(
+                "bundle.md missing required `default_provider:` top-level field. "
+                "This is a bundle integrity error (D6); reinstall amplifier-agent."
+            ),
+            classification="protocol",
+        )
+    return default
 
 
 def _resolve_approval_mode(yes: bool, no: bool) -> str:
@@ -174,12 +201,15 @@ def _write_audit(
     ended_at: str,
     argv: list[str],
     mcp_config_path: str | None,
-    env_allowlist: list[str] | None,
-    env_extra: dict[str, Any] | None,
-    host_capabilities: dict[str, Any] | None,
     protocol_version: str,
 ) -> None:
-    """SC-H — write per-turn audit digest. Secrets are sha256'd, never literal."""
+    """SC-H — write per-turn audit digest. Secrets are sha256'd, never literal.
+
+    Note: env allow-listing was removed in E1/D10 (host config subsumes it),
+    and ``--env-extra`` was removed in E2/D10 (also host-config). The envDigest
+    field is preserved for schema stability and now hashes an empty
+    ``{"extra": {}}`` placeholder.
+    """
     from amplifier_agent_lib.persistence import session_state_dir
 
     if not session_id:
@@ -191,8 +221,7 @@ def _write_audit(
         # Path is non-secret; hashing gives a stable identifier for audit
         # correlation without dragging file I/O into the audit path.
         "mcpConfigPathDigest": (_sha256(mcp_config_path) if mcp_config_path else None),
-        "envDigest": _sha256(json.dumps({"allow": env_allowlist or [], "extra": env_extra or {}}, sort_keys=True)),
-        "hostCapabilities": host_capabilities,
+        "envDigest": _sha256(json.dumps({"extra": {}}, sort_keys=True)),
         "protocolVersion": protocol_version,
         "exitCode": exit_code,
         "correlationId": correlation_id,
@@ -238,7 +267,6 @@ def _build_error_envelope(
     correlation_id: str,
     session_id: str,
     turn_id: str,
-    host_capabilities: dict[str, Any] | None,
     duration_ms: int,
     stderr_tail: str | None = None,
 ) -> dict[str, Any]:
@@ -252,8 +280,6 @@ def _build_error_envelope(
         "protocolVersion": PROTOCOL_VERSION,
         "correlationId": correlation_id,
     }
-    if host_capabilities is not None:
-        metadata["hostCapabilities"] = host_capabilities
     error: dict[str, Any] = {
         "code": code,
         "classification": classification,
@@ -277,7 +303,6 @@ def _build_envelope(
     result: dict[str, Any],
     *,
     correlation_id: str,
-    host_capabilities: dict[str, Any] | None,
     duration_ms: int,
     session_id: str = "",
 ) -> dict[str, Any]:
@@ -295,8 +320,6 @@ def _build_envelope(
         "protocolVersion": PROTOCOL_VERSION,
         "correlationId": correlation_id,
     }
-    if host_capabilities is not None:
-        metadata["hostCapabilities"] = host_capabilities
     return {
         "protocolVersion": PROTOCOL_VERSION,
         "sessionId": session_id or result.get("sessionId", ""),
@@ -326,6 +349,7 @@ class _TurnSpec:
     provider: str  # detected provider short-name (e.g. 'anthropic')
     allow_protocol_skew: bool = False
     mcp_config_path: str | None = None
+    host_config: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +382,7 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
         cwd=spec.cwd,
         is_resumed=spec.resume and not spec.fresh,
         mcp_config_path=spec.mcp_config_path,
+        host_config=spec.host_config,
     )
     engine = Engine(
         turn_handler=handler,
@@ -425,31 +450,6 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
     help="Path to MCP config JSON (see amplifier-module-tool-mcp for the schema; written by the host/wrapper).",
 )
 @click.option(
-    "--allow-protocol-skew",
-    "allow_protocol_skew",
-    is_flag=True,
-    default=False,
-    help="Allow protocol version mismatch between client and engine (unsafe; for testing only).",
-)
-@click.option(
-    "--host-capabilities",
-    "host_capabilities_raw",
-    default=None,
-    help="Host capabilities as inline JSON object.",
-)
-@click.option(
-    "--env-allowlist",
-    "env_allowlist_raw",
-    default=None,
-    help="Comma-separated env var names allowed into the engine subprocess.",
-)
-@click.option(
-    "--env-extra",
-    "env_extra_raw",
-    default=None,
-    help="Extra env vars as inline JSON object (validated against BLOCKED_ENV_KEYS).",
-)
-@click.option(
     "--protocol-version",
     "protocol_version_arg",
     default=None,
@@ -471,10 +471,6 @@ def run(
     quiet: bool,
     output_mode: str,
     mcp_config_path: str | None,
-    allow_protocol_skew: bool,
-    host_capabilities_raw: str | None,
-    env_allowlist_raw: str | None,
-    env_extra_raw: str | None,
     protocol_version_arg: str | None,
 ) -> None:
     """Run the agent in single-turn mode (Mode A).
@@ -512,12 +508,26 @@ def run(
         )
         sys.exit(2)
 
-    # (4) Provider detection.
+    # (3b) Load host configuration (D1). Must run before provider resolution
+    # so that host.provider.module can outrank the bundle default. ConfigError
+    # subclasses AaaError with classification='protocol', so _emit_argv_envelope
+    # maps it to exit code 2 via _EXIT_CODE_BY_CLASSIFICATION.
     try:
-        provider_name = detect_provider(override=provider_override)
-    except ProviderNotConfigured as exc:
-        _emit_error(exc.code, exc.message)
-        sys.exit(1)
+        host_config = load_config(config_arg=config_path)
+    except ConfigError as exc:
+        _emit_argv_envelope(exc.code, exc.message, exit_code=2)
+        return  # unreachable; _emit_argv_envelope calls sys.exit
+
+    # (4) Provider resolution (D6). Priority:
+    #     --provider override > host.provider.module > bundle default_provider.
+    # Env-var-based provider detection (removed in E5) is no longer called; bundle.md is the
+    # source of truth for the default provider when nothing else is configured.
+    if provider_override is not None:
+        provider_name = provider_override
+    elif isinstance(host_config, dict) and isinstance(host_config.get("provider"), dict):
+        provider_name = host_config["provider"].get("module") or _read_bundle_default_provider()
+    else:
+        provider_name = _read_bundle_default_provider()
 
     # (5) Protocol points.
     approval = CliApprovalSystem(mode=_resolve_approval_mode(yes_flag, no_flag))
@@ -536,23 +546,21 @@ def run(
                 f"--mcp-config-path: file not found: {mcp_config_path}",
             )
 
-    # (5c) Parse host capabilities, env extras, and env allowlist (A1'/D12').
-    # env_extra and env_allowlist are parsed here but threaded into the engine
-    # subprocess wiring in a later task (D12' completion); the surface is
-    # exposed now so wrappers can begin passing them without an interface bump.
-    host_capabilities = _parse_json_or_atpath(host_capabilities_raw, flag_name="--host-capabilities")
-    env_extra = _parse_json_or_atpath(env_extra_raw, flag_name="--env-extra")
-    env_allowlist = [k.strip() for k in env_allowlist_raw.split(",") if k.strip()] if env_allowlist_raw else None
+    # (5c) Env handling. The previous --env-allowlist (E1/D10) and --env-extra
+    # (E2/D10) argv flags were removed: env allow-listing and extra env vars
+    # are now host-config concerns, not argv-validation concerns. Wrappers
+    # express both via the host config file consumed by load_config().
 
-    # (5d) Protocol version self-validation (D6 mechanism shift).
-    if protocol_version_arg and not (allow_protocol_skew or os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")):
+    # (5d) Protocol version self-validation (D6 mechanism shift; D10: skew flag
+    # now sourced from host_config['allowProtocolSkew'], not from argv).
+    if protocol_version_arg and not bool((host_config or {}).get("allowProtocolSkew", False)):
         if protocol_version_arg != PROTOCOL_VERSION:
             _emit_argv_envelope(
                 "protocol_version_mismatch",
                 f"Wrapper expects protocol {protocol_version_arg}, engine compiled with {PROTOCOL_VERSION}.",
                 remediation=(
-                    "To force, pass --allow-protocol-skew (unsafe) or reinstall both: "
-                    "`uv tool install --reinstall amplifier-agent` and "
+                    "To force, set `allowProtocolSkew: true` in your --config file (unsafe) "
+                    "or reinstall both: `uv tool install --reinstall amplifier-agent` and "
                     "`npm install amplifier-agent-client-ts@latest`."
                 ),
             )
@@ -567,8 +575,9 @@ def run(
         approval=approval,
         display=display,
         provider=provider_name,
-        allow_protocol_skew=allow_protocol_skew or bool(os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")),
+        allow_protocol_skew=bool((host_config or {}).get("allowProtocolSkew", False)),
         mcp_config_path=mcp_config_path,
+        host_config=host_config,
     )
 
     # (7) Run with error handling.
@@ -599,7 +608,6 @@ def run(
             correlation_id=correlation_id,
             session_id=session_id or "",
             turn_id="turn-1",
-            host_capabilities=host_capabilities,
             duration_ms=duration_ms,
         )
         _real_stdout.write(json.dumps(envelope) + "\n")
@@ -614,9 +622,6 @@ def run(
             ended_at=datetime.now(UTC).isoformat(),
             argv=sys.argv,
             mcp_config_path=mcp_config_path,
-            env_allowlist=env_allowlist,
-            env_extra=env_extra,
-            host_capabilities=host_capabilities,
             protocol_version=PROTOCOL_VERSION,
         )
         sys.exit(exit_code)
@@ -628,7 +633,6 @@ def run(
             correlation_id=correlation_id,
             session_id=session_id or "",
             turn_id="turn-1",
-            host_capabilities=host_capabilities,
             duration_ms=duration_ms,
         )
         _real_stdout.write(json.dumps(envelope) + "\n")
@@ -642,9 +646,6 @@ def run(
             ended_at=datetime.now(UTC).isoformat(),
             argv=sys.argv,
             mcp_config_path=mcp_config_path,
-            env_allowlist=env_allowlist,
-            env_extra=env_extra,
-            host_capabilities=host_capabilities,
             protocol_version=PROTOCOL_VERSION,
         )
         sys.exit(1)
@@ -653,7 +654,6 @@ def run(
         envelope = _build_envelope(
             result,
             correlation_id=correlation_id,
-            host_capabilities=host_capabilities,
             duration_ms=duration_ms,
             session_id=session_id or "",
         )
@@ -672,8 +672,5 @@ def run(
         ended_at=datetime.now(UTC).isoformat(),
         argv=sys.argv,
         mcp_config_path=mcp_config_path,
-        env_allowlist=env_allowlist,
-        env_extra=env_extra,
-        host_capabilities=host_capabilities,
         protocol_version=PROTOCOL_VERSION,
     )

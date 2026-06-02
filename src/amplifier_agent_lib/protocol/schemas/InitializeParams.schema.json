@@ -27,9 +27,6 @@
     },
     "mcpConfigPath": {
       "type": "string"
-    },
-    "host": {
-      "$ref": "InitializeHostParams.schema.json"
     }
   },
   "required": [

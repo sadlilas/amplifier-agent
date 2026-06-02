@@ -285,6 +285,11 @@ NC's `mcp-translator.ts` (locked design §4.3) is **unchanged** — it still sha
 
 ### 2.6 D12 — `host.capabilities` as additive `agent/initialize` field  <a id="d12"></a>
 
+> **SUPERSEDED by `docs/designs/2026-06-01-drop-host-capabilities.md` (2026-06-01).**
+> The `--host-capabilities` argv flag and the `HostCapabilities` surface have
+> been removed across engine, wrappers, schemas, fixtures, and tests. The
+> rationale below is preserved for historical context only.
+
 **Original locked position** (from 2026-05-22 §8 D12, quoted verbatim):
 
 > Additive `host?: { capabilities?: HostCapabilities }` field on `InitializeParams`. v1 capabilities:
@@ -332,6 +337,8 @@ The six preserved decisions (D2, D5, D7, D8, D10, D11) carry forward verbatim wi
 ---
 
 ## §3 Mode A v2 CLI specification  <a id="s3-cli"></a>
+
+> **SUPERSEDED for argv surface.** The per-turn argv flags `--env-allowlist`, `--env-extra`, and `--allow-protocol-skew` are removed per `docs/designs/2026-06-01-host-config-layer-revisit.md` (D10). The `AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW` env var is also removed. These knobs are now host-config keys (`mcp:`, `approval:`, `allowProtocolSkew:`). Mode A's other §3 decisions (D1, D3, D4, D6, D9, D12 inspectability, wire shape, secret-spill pattern) remain unchanged.
 
 The amended `amplifier-agent run` subcommand. Spec format mirrors the existing click decorator surface in `src/amplifier_agent_cli/modes/single_turn.py`.
 

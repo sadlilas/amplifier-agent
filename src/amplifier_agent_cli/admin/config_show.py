@@ -15,14 +15,9 @@ from pathlib import Path
 from typing import Any
 
 import click
+import yaml
 
-from amplifier_agent_cli.provider_detect import (
-    _DETECTION_ORDER as _PROVIDER_ENV_ORDER,
-)
-from amplifier_agent_cli.provider_detect import (
-    ProviderNotConfigured,
-    detect_provider,
-)
+from amplifier_agent_lib.bundle import BUNDLE_MD
 
 
 def _annotate_env_or_default(env_var: str, default: Path) -> dict[str, Any]:
@@ -38,27 +33,50 @@ def _annotate_env_or_default(env_var: str, default: Path) -> dict[str, Any]:
     return {"value": str(default), "source": "default"}
 
 
-def _resolve_provider() -> dict[str, Any]:
-    """Determine the active provider and where that decision came from.
+def _resolve_host_config(config_arg: str | None) -> dict[str, Any]:
+    """Report the resolved host config path + source + parsed values (D8).
 
-    Walk the detection order; if any env var is set, return its value + source.
-    If none are set, attempt detect_provider(override=None) for a 'default'
-    result (covers any future file-based config).  On ProviderNotConfigured,
-    return value=None, source='unset'.
+    Precedence: --config flag > $AMPLIFIER_AGENT_CONFIG env > none. Never
+    raises: parse failures are captured into ``parse_error`` with
+    ``parsed=None`` so ``config show`` remains a diagnostic command that
+    always exits 0.
     """
-    for provider_name, env_vars in _PROVIDER_ENV_ORDER:
-        # env_vars[0] is the preferred name; remaining entries are deprecated
-        # aliases. Source annotation reports the actual env var that supplied
-        # the credential so operators can spot uses of the legacy spelling.
-        for env_var in env_vars:
-            if os.environ.get(env_var):
-                return {"value": provider_name, "source": f"env:{env_var}"}
+    if config_arg is not None:
+        result: dict[str, Any] = {"path": config_arg, "source": "--config flag"}
+    elif env_val := os.environ.get("AMPLIFIER_AGENT_CONFIG"):
+        result = {"path": env_val, "source": "$AMPLIFIER_AGENT_CONFIG env"}
+    else:
+        return {"path": None, "source": "none", "parsed": None}
+
+    # Local import: keep the CLI start-up cost off the no-config path and
+    # avoid coupling the admin module to the lib config package at import
+    # time.
+    from amplifier_agent_lib.config import ConfigError, load_config
 
     try:
-        name = detect_provider(override=None)
-        return {"value": name, "source": "default"}
-    except ProviderNotConfigured:
-        return {"value": None, "source": "unset"}
+        result["parsed"] = load_config(config_arg=config_arg)
+    except ConfigError as exc:
+        result["parsed"] = None
+        result["parse_error"] = {"code": exc.code, "message": exc.message}
+    return result
+
+
+def _resolve_provider() -> dict[str, Any]:
+    """Determine the active provider from the vendored bundle.md default (D6).
+
+    Reads ``default_provider:`` from ``bundle.md``'s YAML frontmatter. Returns
+    ``source='bundle.default_provider'`` when present, ``source='unset'`` when
+    the field is missing/non-string, and ``source='error'`` if the manifest
+    cannot be parsed.
+    """
+    try:
+        manifest = yaml.safe_load(BUNDLE_MD.read_text(encoding="utf-8").split("---\n")[1])
+    except Exception:
+        return {"value": None, "source": "error"}
+    default = manifest.get("default_provider") if isinstance(manifest, dict) else None
+    if isinstance(default, str):
+        return {"value": default, "source": "bundle.default_provider"}
+    return {"value": None, "source": "unset"}
 
 
 @click.group()
@@ -67,12 +85,20 @@ def config_group() -> None:
 
 
 @config_group.command(name="show")
-def config_show() -> None:
+@click.option(
+    "--config",
+    "config_path",
+    default=None,
+    type=click.Path(),
+    help="Path to host config file.",
+)
+def config_show(config_path: str | None) -> None:
     """Print resolved configuration as JSON with source annotations."""
     home = Path(os.environ.get("HOME", str(Path.home())))
 
     payload: dict[str, Any] = {
         "provider": _resolve_provider(),
+        "host_config": _resolve_host_config(config_path),
         "xdg_config_home": _annotate_env_or_default("XDG_CONFIG_HOME", home / ".config"),
         "xdg_cache_home": _annotate_env_or_default("XDG_CACHE_HOME", home / ".cache"),
         "xdg_state_home": _annotate_env_or_default("XDG_STATE_HOME", home / ".local" / "state"),

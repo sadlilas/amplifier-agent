@@ -9,9 +9,9 @@ reads the file via its standard config discovery (config.py priority chain).
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,7 +30,6 @@ def _make_params(
     *,
     session_id: str = "sess-test-1",
     mcp_config_path: str | None = None,
-    host_capabilities: dict[str, Any] | None = None,
     resume: bool = False,
 ) -> dict[str, Any]:
     """Build a minimal InitializeParams dict for testing."""
@@ -40,7 +39,6 @@ def _make_params(
         "protocolVersion": "0.2.0",
         "clientInfo": {"name": "test-harness", "version": "0.0.0"},
         "capabilities": {"display": {"events": ["result/final"]}},
-        "host": {"capabilities": host_capabilities or {}},
     }
     if mcp_config_path is not None:
         params["mcpConfigPath"] = mcp_config_path
@@ -119,29 +117,6 @@ async def test_missing_mcp_config_path_leaves_env_unchanged() -> None:
         finally:
             if old_val is not None:
                 os.environ["AMPLIFIER_MCP_CONFIG"] = old_val
-
-
-@pytest.mark.asyncio
-async def test_host_capabilities_stored_in_session_metadata() -> None:
-    """host.capabilities from params must be stored in session.metadata['host_capabilities']."""
-    from amplifier_agent_lib._runtime import handle_initialize
-
-    host_caps = {"supports_structured_errors": True, "supports_steering": False}
-    params = _make_params(host_capabilities=host_caps)
-    mock_bundle, mock_session = _make_mock_bundle()
-
-    with (
-        patch(
-            "amplifier_agent_lib._runtime.load_and_prepare_cached",
-            AsyncMock(return_value=mock_bundle),
-        ),
-    ):
-        await handle_initialize(params)
-
-    assert mock_session.metadata.get("host_capabilities") == host_caps, (
-        f"session.metadata['host_capabilities'] should be {host_caps!r}, "
-        f"got {mock_session.metadata.get('host_capabilities')!r}"
-    )
 
 
 # ---------------------------------------------------------------------------

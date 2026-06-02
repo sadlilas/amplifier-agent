@@ -4,11 +4,15 @@ Per D6, version skew is the worst class of bug.  Engine.boot() must:
   - Raise AaaError(code='protocol_version_mismatch') when client protocolVersion
     differs from PROTOCOL_VERSION and the override is NOT set.
   - Allow boot when allowProtocolSkew=True is passed in params.
-  - Allow boot when AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW env var is set.
 
-2 tests:
+Per D10, the AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW env var is no longer honored —
+the skew override is now sourced exclusively from host config (allowProtocolSkew
+key) and forwarded to the engine via params.
+
+Tests:
   1. test_boot_refuses_protocol_version_mismatch
   2. test_boot_allows_skew_when_override_set
+  3. test_boot_no_longer_honors_amplifier_agent_allow_protocol_skew_env
 """
 
 from __future__ import annotations
@@ -73,7 +77,9 @@ async def test_boot_refuses_protocol_version_mismatch() -> None:
     assert err.code == "protocol_version_mismatch"
     assert "client" in err.message
     assert "engine" in err.message
-    assert "--allow-protocol-skew" in err.message
+    # D10: remediation references the host-config key, not the (removed) env var
+    # or the (removed) --allow-protocol-skew CLI flag.
+    assert "allowProtocolSkew" in err.message
 
 
 # ---------------------------------------------------------------------------
@@ -96,3 +102,33 @@ async def test_boot_allows_skew_when_override_set() -> None:
         bundle_override=MagicMock(),
     )
     assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# Test 3 (D10): AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW env var is no longer honored
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_boot_no_longer_honors_amplifier_agent_allow_protocol_skew_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setting AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW=1 must NOT bypass the check.
+
+    Per D10, the env var was retired. The skew override now lives exclusively in
+    host config (allowProtocolSkew). Setting the legacy env var must not affect
+    Engine.boot — a version mismatch must still raise protocol_version_mismatch.
+    """
+    monkeypatch.setenv("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW", "1")
+    engine = _make_engine()
+    with pytest.raises(AaaError) as exc_info:
+        await engine.boot(
+            {
+                "protocolVersion": "1999-01-jurassic",
+                "clientInfo": {"name": "test-client", "version": "0.0.0"},
+                "capabilities": {},
+                "sessionId": "test-session",
+            },
+            bundle_override=MagicMock(),
+        )
+    assert exc_info.value.code == "protocol_version_mismatch"

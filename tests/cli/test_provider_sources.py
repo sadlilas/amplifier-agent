@@ -1,13 +1,14 @@
 """Tests for amplifier_agent_cli.provider_sources.
 
-The catalog maps the short provider names returned by ``detect_provider()``
-(anthropic / openai / azure-openai / ollama) to the module URI and env-var
-template needed to mount that provider via foundation's ``mount_plan["providers"]``
-slot. The injection pattern mirrors openclaw's ``_inject_user_providers``: it
-happens AFTER ``prepared = await load_and_prepare_cached(...)`` returns and
-BEFORE ``engine.boot(params, bundle_override=prepared)`` is called — so the
-pickled cache stays free of secrets (api_key is expanded per-invocation, not
-baked into the pickle).
+The catalog maps the short provider names (anthropic / openai / azure-openai /
+ollama) resolved from config / bundle.md ``default_provider`` (D6) to the
+module URI and env-var template needed to mount that provider via foundation's
+``mount_plan["providers"]`` slot. The injection pattern mirrors openclaw's
+``_inject_user_providers``: it happens AFTER
+``prepared = await load_and_prepare_cached(...)`` returns and BEFORE
+``engine.boot(params, bundle_override=prepared)`` is called — so the pickled
+cache stays free of secrets (api_key is expanded per-invocation, not baked
+into the pickle).
 """
 
 from __future__ import annotations
@@ -23,9 +24,8 @@ import pytest
 
 
 def test_catalog_lists_all_four_detection_names() -> None:
-    """PROVIDER_CATALOG keys exactly match provider_detect's KNOWN_PROVIDERS."""
-    from amplifier_agent_cli.provider_detect import KNOWN_PROVIDERS
-    from amplifier_agent_cli.provider_sources import PROVIDER_CATALOG
+    """PROVIDER_CATALOG keys exactly match KNOWN_PROVIDERS in provider_sources."""
+    from amplifier_agent_cli.provider_sources import KNOWN_PROVIDERS, PROVIDER_CATALOG
 
     assert set(PROVIDER_CATALOG.keys()) == set(KNOWN_PROVIDERS)
 
@@ -115,7 +115,7 @@ def test_build_provider_entry_unknown_provider_raises() -> None:
 
 
 def test_build_provider_entry_missing_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If the env var is unset, api_key resolves to empty string (caller validated earlier via detect_provider)."""
+    """If the env var is unset, api_key resolves to empty string (caller validated provider name earlier via config / bundle default)."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     from amplifier_agent_cli.provider_sources import build_provider_entry
 

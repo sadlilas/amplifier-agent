@@ -99,7 +99,6 @@ class SessionHandleParams:
     resume: bool = False
     cwd: str | None = None
     mcp_servers: dict[str, dict[str, Any]] | None = None
-    host_capabilities: dict[str, Any] | None = None
     env_allowlist: list[str] = field(default_factory=list)
     env_extra: dict[str, str] = field(default_factory=dict)
     provider_override: str | None = None
@@ -185,7 +184,6 @@ class SessionHandle:
             cwd=self._params.cwd,
             provider_override=self._params.provider_override,
             mcp_config_path=spill["config_path"],
-            host_capabilities=self._params.host_capabilities,
             env_allowlist=self._params.env_allowlist,
             env_extra=self._params.env_extra,
             allow_protocol_skew=self._params.allow_protocol_skew,

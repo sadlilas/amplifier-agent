@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from amplifier_agent_lib import __version__
 from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
+from amplifier_agent_lib.config import merge_config
 from amplifier_agent_lib.engine import TurnContext, TurnHandler
 from amplifier_agent_lib.incremental_save import IncrementalSaveHook
 from amplifier_agent_lib.persistence import state_root
@@ -37,6 +38,7 @@ def make_turn_handler(
     cwd: str | None,
     is_resumed: bool,
     mcp_config_path: str | None = None,
+    host_config: dict[str, Any] | None = None,
 ) -> TurnHandler:
     """Return a TurnHandler closed over the loaded PreparedBundle.
 
@@ -80,6 +82,46 @@ def make_turn_handler(
     # format; the engine just routes the path.
     if mcp_config_path:
         os.environ["AMPLIFIER_MCP_CONFIG"] = mcp_config_path
+
+    # D4: host_config.mcp.configPath → AMPLIFIER_MCP_CONFIG env var.
+    # configPath is an engine-level convenience key, not a tool-mcp config key.
+    # tool-mcp resolves it from its own AMPLIFIER_MCP_CONFIG priority chain.
+    # CLI flag --mcp-config-path takes precedence over host config (already
+    # handled by the block above; we only set if CLI did not).
+    mcp_host_block = (host_config or {}).get("mcp")
+    if isinstance(mcp_host_block, dict) and not mcp_config_path:
+        config_path_from_host = mcp_host_block.get("configPath")
+        if isinstance(config_path_from_host, str) and config_path_from_host:
+            os.environ["AMPLIFIER_MCP_CONFIG"] = config_path_from_host
+
+    # D5: Overlay host-supplied config over the bundle's static module
+    # configs at the bundle-mount seam.  ``merge_config`` expects
+    # ``{module_id: config_dict}``, but ``mount_plan["tools"|"hooks"|
+    # "providers"]`` are LISTS of ``{module, config, source}`` dicts (the
+    # shape ``Bundle.to_mount_plan()`` produces). Build the {module_id:
+    # config_dict} view, run the merge, then write the merged values back
+    # into the SAME list entries in-place so the kernel sees the overrides
+    # at ``mount_plan["tools"][n]["config"]`` etc.  ``mount_plan`` is
+    # declared non-Optional on ``PreparedBundle``; we still guard with
+    # ``or []`` per section in case a bundle omits a section entirely.
+    mount_plan: dict[str, Any] = prepared.mount_plan or {}
+    bundle_module_configs: dict[str, dict] = {}
+    for section in ("tools", "hooks", "providers"):
+        for entry in mount_plan.get(section) or []:
+            mid = entry.get("module")
+            if mid:
+                bundle_module_configs[mid] = dict(entry.get("config") or {})
+
+    merged_modules, _allow_skew = merge_config(
+        bundle_modules=bundle_module_configs,
+        host_config=host_config,
+    )
+
+    for section in ("tools", "hooks", "providers"):
+        for entry in mount_plan.get(section) or []:
+            mid = entry.get("module")
+            if mid and mid in merged_modules:
+                entry["config"] = merged_modules[mid]
 
     # Pre-hydrate agent overlays from the vendored agent markdown files.
     # This is done once at handler-creation time (cold path) so each turn
@@ -255,8 +297,5 @@ async def handle_initialize(params: dict[str, Any]) -> Any:
         session_id=session_id,
         is_resumed=is_resumed,
     )
-
-    # ── A5: host capabilities storage ──
-    session.metadata["host_capabilities"] = (params.get("host") or {}).get("capabilities") or {}
 
     return session

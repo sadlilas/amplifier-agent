@@ -5,13 +5,11 @@ Mirror of wrappers/typescript/test/argv-builder.test.ts.
 Protocol 0.2.0 cases:
 (i)  happy path minimal session — exact argv array
 (ii) resume mode replaces --fresh with --resume
-(iii) --host-capabilities threaded as JSON string and parseable
+(iii) --host-capabilities flag NOT emitted (drop-host-capabilities)
 (iv) --mcp-config-path threaded as bare path when caller pre-spilled
 """
 
 from __future__ import annotations
-
-import json
 
 from amplifier_agent_client.argv_builder import assemble_argv
 
@@ -49,20 +47,14 @@ def test_resume_mode_replaces_fresh_with_resume() -> None:
     assert "--fresh" not in argv
 
 
-def test_host_capabilities_threaded_as_json_string_and_parseable() -> None:
-    """(iii) --host-capabilities threaded as JSON string and parseable."""
-    caps = {"fs": {"read": True}, "net": False}
+def test_host_capabilities_flag_not_emitted() -> None:
+    """(iii) --host-capabilities flag is not emitted (drop-host-capabilities)."""
     argv = assemble_argv(
         session_id="sid",
         prompt="hello",
         protocol_version="0.2.0",
-        host_capabilities=caps,
     )
-    idx = argv.index("--host-capabilities")
-    assert idx >= 0
-    json_arg = argv[idx + 1]
-    assert isinstance(json_arg, str)
-    assert json.loads(json_arg) == caps
+    assert "--host-capabilities" not in argv
 
 
 def test_mcp_config_path_threaded_as_bare_path_when_caller_pre_spilled() -> None:

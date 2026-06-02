@@ -61,7 +61,6 @@ async def spawn_agent(
     display: dict[str, Any] | None = None,
     allow_protocol_skew: bool = False,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
-    host: dict[str, Any] | None = None,
     timeout_ms: int | None = None,
     # Test-only injection points (undocumented in public API).
     _binary_resolver: Callable[[], str] | None = None,
@@ -93,7 +92,6 @@ async def spawn_agent(
         allow_protocol_skew: If True, bypass strict-refuse version check.
         mcp_servers:         MCP servers dict; spilled to a 0600 tmpfile and
                              forwarded via ``--mcp-config-path <path>``.
-        host:                Host capabilities envelope.
         timeout_ms:          Per-submit timeout in milliseconds (default: 10 min).
         _binary_resolver:    Test-only: replaces ``resolve_binary_path()``.
 
@@ -150,10 +148,6 @@ async def spawn_agent(
 
     # 4. Construct SessionHandle. NO subprocess spawned here — the engine is
     #    launched per submit() (amendment §5.2).
-    host_capabilities: dict[str, Any] | None = None
-    if host is not None and isinstance(host.get("capabilities"), dict):
-        host_capabilities = host["capabilities"]
-
     from amplifier_agent_client.session import DEFAULT_TIMEOUT_MS
 
     params = SessionHandleParams(
@@ -164,7 +158,6 @@ async def spawn_agent(
         resume=resume,
         cwd=cwd,
         mcp_servers=mcp_servers,
-        host_capabilities=host_capabilities,
         env_allowlist=allowlist,
         env_extra=extra,
         provider_override=provider_override,

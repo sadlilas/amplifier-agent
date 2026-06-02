@@ -2,10 +2,10 @@
 
 Verifies that `amplifier-agent config show`:
   - Outputs valid JSON.
-  - Reports provider with value and source='env:<VAR>' when provider env vars are set.
+  - Reports provider with value=<bundle default> and source='bundle.default_provider'
+    when bundle.md declares a default_provider (D6 / E5).
   - Reports XDG_CONFIG_HOME with source='env:XDG_CONFIG_HOME' when set.
   - Reports xdg_config_home with source='default' when XDG_CONFIG_HOME is absent.
-  - Returns provider.value=None and source='unset' when no provider env vars are set.
 """
 
 from __future__ import annotations
@@ -41,14 +41,20 @@ def test_config_show_outputs_valid_json(runner: CliRunner, tmp_path: Path) -> No
     assert isinstance(parsed, dict)
 
 
-def test_config_show_reports_provider_from_env(runner: CliRunner, tmp_path: Path) -> None:
-    """When ANTHROPIC_API_KEY is set and others are absent, provider reflects anthropic from env."""
+def test_config_show_reports_provider_from_bundle_default(runner: CliRunner, tmp_path: Path) -> None:
+    """provider.value/source reflect bundle.md's `default_provider:` field (D6 / E5).
+
+    Env vars no longer influence the reported provider — the vendored bundle.md
+    is the single source of truth. The vendored manifest ships
+    `default_provider: anthropic`.
+    """
     env = {
+        # Set provider env vars to verify they do NOT influence the reported
+        # source (E5: env-var-based detection was removed).
         "ANTHROPIC_API_KEY": "sk-test",
-        # Explicitly unset the other provider keys so detection order is clean.
         "OPENAI_API_KEY": "",
         "AZURE_OPENAI_API_KEY": "",
-        "AZURE_OPENAI_KEY": "",  # legacy alias
+        "AZURE_OPENAI_KEY": "",
         "OLLAMA_HOST": "",
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_CACHE_HOME": str(tmp_path / "cache"),
@@ -58,7 +64,7 @@ def test_config_show_reports_provider_from_env(runner: CliRunner, tmp_path: Path
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
     assert parsed["provider"]["value"] == "anthropic"
-    assert parsed["provider"]["source"] == "env:ANTHROPIC_API_KEY"
+    assert parsed["provider"]["source"] == "bundle.default_provider"
 
 
 def test_config_show_reports_xdg_config_home_from_env(runner: CliRunner, tmp_path: Path) -> None:
@@ -90,8 +96,128 @@ def test_config_show_reports_default_when_env_absent(runner: CliRunner, tmp_path
     assert parsed["xdg_config_home"]["source"] == "default"
 
 
-def test_config_show_handles_no_provider_configured(runner: CliRunner, tmp_path: Path) -> None:
-    """When no provider env vars are set, exit 0, provider.value is None, source=='unset'."""
+def test_config_show_reports_flag_resolution_source(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When --config <path> is passed, host_config reports path=<path> and source='--config flag' (D8)."""
+    cfg = tmp_path / "host.toml"
+    cfg.write_text("# stub host config\n", encoding="utf-8")
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "ANTHROPIC_API_KEY": "sk-test",
+    }
+    result = runner.invoke(cli, ["config", "show", "--config", str(cfg)], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["path"] == str(cfg)
+    assert parsed["host_config"]["source"] == "--config flag"
+
+
+def test_config_show_reports_env_resolution_source(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When $AMPLIFIER_AGENT_CONFIG is set (and no --config flag), host_config reports
+    path=<env-path> and source='$AMPLIFIER_AGENT_CONFIG env' (D8).
+    """
+    cfg = tmp_path / "host.toml"
+    cfg.write_text("# stub host config\n", encoding="utf-8")
+    env = {
+        "HOME": str(tmp_path),
+        "AMPLIFIER_AGENT_CONFIG": str(cfg),
+    }
+    result = runner.invoke(cli, ["config", "show"], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["path"] == str(cfg)
+    assert parsed["host_config"]["source"] == "$AMPLIFIER_AGENT_CONFIG env"
+
+
+def test_config_show_reports_no_source_when_absent(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When neither --config flag nor $AMPLIFIER_AGENT_CONFIG is set, host_config
+    reports path=None and source='none' (D8).
+    """
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    env = {
+        "HOME": str(tmp_path),
+    }
+    result = runner.invoke(cli, ["config", "show"], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["path"] is None
+    assert parsed["host_config"]["source"] == "none"
+
+
+def test_config_show_emits_parsed_values(runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When --config points at a valid config, host_config.parsed reflects the parsed values (D8).
+
+    config show MUST surface the loader's output under host_config.parsed so that
+    operators can verify what the engine will see — not just where the file
+    lives.
+    """
+    cfg = tmp_path / "host.json"
+    cfg.write_text(
+        json.dumps({"mcp": {"verbose_servers": True}, "approval": {"auto_approve": False}}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "ANTHROPIC_API_KEY": "sk-test",
+    }
+    result = runner.invoke(cli, ["config", "show", "--config", str(cfg)], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["parsed"] == {
+        "mcp": {"verbose_servers": True},
+        "approval": {"auto_approve": False},
+    }
+
+
+def test_config_show_succeeds_when_config_malformed(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """config show stays exit-0 and surfaces parse_error when host config is malformed (D8).
+
+    Operators must be able to locate the offending file *before* they can
+    debug its contents. So even when load_config raises a ConfigError, the
+    diagnostic command exits 0, reports path + source, sets parsed=None,
+    and attaches parse_error={code,message} for the loader's error code.
+    """
+    cfg = tmp_path / "host.json"
+    # Truncated JSON: valid prefix, no closing braces. Triggers
+    # json.JSONDecodeError inside load_config, which maps to
+    # ConfigError(code='config_malformed_json').
+    cfg.write_text('{"mcp": {"verbose_servers": true,', encoding="utf-8")
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "ANTHROPIC_API_KEY": "sk-test",
+    }
+    result = runner.invoke(cli, ["config", "show", "--config", str(cfg)], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["path"] == str(cfg)
+    assert parsed["host_config"]["source"] == "--config flag"
+    assert parsed["host_config"]["parsed"] is None
+    assert parsed["host_config"]["parse_error"]["code"] == "config_malformed_json"
+
+
+def test_config_show_reports_bundle_default_even_with_no_env_vars(runner: CliRunner, tmp_path: Path) -> None:
+    """Provider resolution is decoupled from env vars (E5/D6).
+
+    When no provider env vars are set, ``config show`` still reports the
+    bundle's ``default_provider`` because env-var-based detection no longer
+    influences this command. Exit 0 throughout.
+    """
     env = {
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_CACHE_HOME": str(tmp_path / "cache"),
@@ -105,5 +231,6 @@ def test_config_show_handles_no_provider_configured(runner: CliRunner, tmp_path:
     result = runner.invoke(cli, ["config", "show"], env=env)
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
-    assert parsed["provider"]["value"] is None
-    assert parsed["provider"]["source"] == "unset"
+    # bundle.md ships `default_provider: anthropic`.
+    assert parsed["provider"]["value"] == "anthropic"
+    assert parsed["provider"]["source"] == "bundle.default_provider"
