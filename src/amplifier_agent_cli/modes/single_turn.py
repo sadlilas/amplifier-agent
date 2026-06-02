@@ -432,12 +432,6 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
     help="Allow protocol version mismatch between client and engine (unsafe; for testing only).",
 )
 @click.option(
-    "--host-capabilities",
-    "host_capabilities_raw",
-    default=None,
-    help="Host capabilities as inline JSON object.",
-)
-@click.option(
     "--env-allowlist",
     "env_allowlist_raw",
     default=None,
@@ -472,7 +466,6 @@ def run(
     output_mode: str,
     mcp_config_path: str | None,
     allow_protocol_skew: bool,
-    host_capabilities_raw: str | None,
     env_allowlist_raw: str | None,
     env_extra_raw: str | None,
     protocol_version_arg: str | None,
@@ -536,11 +529,11 @@ def run(
                 f"--mcp-config-path: file not found: {mcp_config_path}",
             )
 
-    # (5c) Parse host capabilities, env extras, and env allowlist (A1'/D12').
+    # (5c) Parse env extras and env allowlist (A1').
     # env_extra and env_allowlist are parsed here but threaded into the engine
     # subprocess wiring in a later task (D12' completion); the surface is
     # exposed now so wrappers can begin passing them without an interface bump.
-    host_capabilities = _parse_json_or_atpath(host_capabilities_raw, flag_name="--host-capabilities")
+    host_capabilities = None  # transitional — removed in subsequent commits
     env_extra = _parse_json_or_atpath(env_extra_raw, flag_name="--env-extra")
     env_allowlist = [k.strip() for k in env_allowlist_raw.split(",") if k.strip()] if env_allowlist_raw else None
 
