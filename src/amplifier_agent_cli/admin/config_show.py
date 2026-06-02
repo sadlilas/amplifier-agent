@@ -34,16 +34,31 @@ def _annotate_env_or_default(env_var: str, default: Path) -> dict[str, Any]:
 
 
 def _resolve_host_config(config_arg: str | None) -> dict[str, Any]:
-    """Report the resolved host config path + source (D8).
+    """Report the resolved host config path + source + parsed values (D8).
 
-    Precedence: --config flag > $AMPLIFIER_AGENT_CONFIG env > none. Never raises.
+    Precedence: --config flag > $AMPLIFIER_AGENT_CONFIG env > none. Never
+    raises: parse failures are captured into ``parse_error`` with
+    ``parsed=None`` so ``config show`` remains a diagnostic command that
+    always exits 0.
     """
     if config_arg is not None:
-        return {"path": config_arg, "source": "--config flag"}
-    env_val = os.environ.get("AMPLIFIER_AGENT_CONFIG")
-    if env_val:
-        return {"path": env_val, "source": "$AMPLIFIER_AGENT_CONFIG env"}
-    return {"path": None, "source": "none"}
+        result: dict[str, Any] = {"path": config_arg, "source": "--config flag"}
+    elif env_val := os.environ.get("AMPLIFIER_AGENT_CONFIG"):
+        result = {"path": env_val, "source": "$AMPLIFIER_AGENT_CONFIG env"}
+    else:
+        return {"path": None, "source": "none", "parsed": None}
+
+    # Local import: keep the CLI start-up cost off the no-config path and
+    # avoid coupling the admin module to the lib config package at import
+    # time.
+    from amplifier_agent_lib.config import ConfigError, load_config
+
+    try:
+        result["parsed"] = load_config(config_arg=config_arg)
+    except ConfigError as exc:
+        result["parsed"] = None
+        result["parse_error"] = {"code": exc.code, "message": exc.message}
+    return result
 
 
 def _resolve_provider() -> dict[str, Any]:

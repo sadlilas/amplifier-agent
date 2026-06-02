@@ -152,6 +152,34 @@ def test_config_show_reports_no_source_when_absent(
     assert parsed["host_config"]["source"] == "none"
 
 
+def test_config_show_emits_parsed_values(runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When --config points at a valid config, host_config.parsed reflects the parsed values (D8).
+
+    config show MUST surface the loader's output under host_config.parsed so that
+    operators can verify what the engine will see — not just where the file
+    lives.
+    """
+    cfg = tmp_path / "host.json"
+    cfg.write_text(
+        json.dumps({"mcp": {"verbose_servers": True}, "approval": {"auto_approve": False}}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "ANTHROPIC_API_KEY": "sk-test",
+    }
+    result = runner.invoke(cli, ["config", "show", "--config", str(cfg)], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["parsed"] == {
+        "mcp": {"verbose_servers": True},
+        "approval": {"auto_approve": False},
+    }
+
+
 def test_config_show_reports_bundle_default_even_with_no_env_vars(runner: CliRunner, tmp_path: Path) -> None:
     """Provider resolution is decoupled from env vars (E5/D6).
 
