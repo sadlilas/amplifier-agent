@@ -3,6 +3,7 @@
 **Status:** DRAFT — pending review.
 **Author:** Manoj Prabhakar Paidiparthy
 **Date drafted:** 2026-06-01
+**Revised:** 2026-06-01 (D3 format changed from YAML to JSON; downstream sections updated accordingly)
 **Supersedes / amends:** Mode A amendment (`docs/designs/2026-05-24-aaa-v2-mode-a-pivot-amendment.md`) §3 — specifically removes argv flags `--env-allowlist`, `--env-extra`, `--allow-protocol-skew`; drops env var `AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW`; adds the `--config` resolution and the host-config schema. Mode A's locked decisions D1, D3, D4, D6, D9, D12 are preserved unchanged.
 **Audience:** amplifier-agent contributors; host adapter authors (NC, future PC, OpenCode, Claude Code); operators debugging config at runtime.
 
@@ -48,7 +49,7 @@ That sentence rules out amplifier-agent inventing its own config vocabulary, pic
 
 - The `--config <path>` argv flag (already declared but unwired at `src/amplifier_agent_cli/modes/single_turn.py:406`).
 - A new `$AMPLIFIER_AGENT_CONFIG` env var.
-- The YAML config file schema (four top-level keys).
+- The JSON config file schema (four top-level keys).
 - Resolution, parsing, validation, and layered merging into the sealed bundle's module configs at bundle-mount time.
 - Removal of the three argv flags listed in D10.
 - Removal of `AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW` env var handling.
@@ -76,7 +77,7 @@ Resolution order. First hit wins.
 1. `--config <path>` argv flag.
 2. `$AMPLIFIER_AGENT_CONFIG` env var.
 
-Absent both, there is no config tier. `bundle.md` defaults apply. There is no XDG fallback at `$XDG_CONFIG_HOME/amplifier-agent/config.yaml`.
+Absent both, there is no config tier. `bundle.md` defaults apply. There is no XDG fallback at `$XDG_CONFIG_HOME/amplifier-agent/config.json`.
 
 **Rationale.** A1 makes amplifier-agent programs-first. The XDG default exists in CLI prior art (kubectl, docker, git) to serve a single human at a single `$HOME`. amplifier-agent's primary caller is a program, and multiple programs coexist on one machine. An XDG default in that environment creates silent collision under shared `$HOME` (CI runners with shared UID, co-resident non-containerized hosts). The cases where the XDG default would actually help — the human zero-config case — are also the cases where `bundle.md` defaults are sufficient and a config file is unnecessary. Removing the XDG fallback removes the silent-collision class entirely.
 
@@ -84,42 +85,57 @@ The 2-tier shape preserves the inspectability ordering from Mode A §2.1: an exp
 
 ### D2 — Hard error on missing or unreadable path
 
-If `--config /path.yaml` is passed and the file does not exist, cannot be opened, or is not readable, the engine emits a structured error envelope per Mode A §4.1 with `error.code = "config_unreadable"`, `error.classification = "protocol"`, and exits with code 2.
+If `--config /path.json` is passed and the file does not exist, cannot be opened, or is not readable, the engine emits a structured error envelope per Mode A §4.1 with `error.code = "config_unreadable"`, `error.classification = "protocol"`, and exits with code 2.
 
 Same behavior if `$AMPLIFIER_AGENT_CONFIG` is set to a path that does not exist or is unreadable. The env var is not silently ignored on missing path — setting it is an affirmative declaration that this file is the config.
 
-**Rationale.** Silent fall-through hides typos (`AMPLIFIER_AGENT_CONFG=/etc/host/aaa.yaml` would otherwise produce "why aren't my settings applying?" at 2am). Both tiers are explicit; both must succeed if claimed.
+**Rationale.** Silent fall-through hides typos (`AMPLIFIER_AGENT_CONFG=/etc/host/aaa.json` would otherwise produce "why aren't my settings applying?" at 2am). Both tiers are explicit; both must succeed if claimed.
 
-### D3 — Format: YAML with `safe_load` only
+### D3 — Format: JSON
 
-The config file format is YAML. The implementation MUST use `yaml.safe_load`. `yaml.load()` without `SafeLoader` is a known arbitrary-code-execution vector (the PyYAML CVE class around `!!python/object` constructors). This is a security-critical implementation constraint, not a stylistic choice; it appears in the schema validator and in tests.
+The config file format is JSON. The implementation parses it via `json.load`.
 
-**Rationale.** TOML was the closer match to CLI ecosystem convention and would have avoided the YAML Norway problem entirely (`approvalDefault: no` parsing to boolean `False`). YAML was chosen because the engine takes the parse cost (PyYAML is already a transitive foundation dependency), because hosts that author the config can use a richer format than JSON (comments, multi-line strings), and because the post-reframe schema (D4) has no top-level key whose legal values are YAML-coerced. The remaining residual risk (D7) is contained to `approval.patterns` list members and is closed by item-type validation at parse time.
+**Rationale.** The earlier draft chose YAML on the reasoning that the engine takes the parse cost and that hosts authoring config might want comments or multi-line strings. Reframing on the actual audience inverts that. amplifier-agent is programs-first (A1); the audience writing this file is host adapters and operator tooling, not humans editing YAML in a text editor. Once that frame is correct, JSON wins on five reinforcing dimensions.
+
+First, ecosystem consistency. The Mode A envelope on stdout is JSON. The MCP config file consumed by `tool-mcp` (and threaded via `AMPLIFIER_MCP_CONFIG` per D4) is JSON. The audit files written per turn (Mode A §A2.1') are JSON. The TS and Python wrappers consume the envelope as JSON natively. Switching the host config file to JSON makes the entire amplifier-agent I/O surface a single format. YAML would have been the lone outlier across the whole wire.
+
+Second, the security posture simplifies. `json.load` has no equivalent of `yaml.load`'s arbitrary-code-execution vector — there is no `!!python/object` analogue to defend against, no `safe_load` mandate to enforce, no PyYAML CVE-class concern to track. The implementation rule "MUST use safe_load" disappears entirely; correct usage is the only usage.
+
+Third, the YAML Norway problem disappears. In JSON, `"no"` is unambiguously the string `no`; `false` is unambiguously the boolean; numbers, nulls, and arrays carry their explicit type from the wire. The type coercion ambiguity that motivated the `approval.patterns` string-coercion guard in the earlier D7 is structurally impossible in JSON. D7 simplifies accordingly.
+
+Fourth, the wrappers stay lean. The TS wrapper (`@amplifier/agent-wrapper-ts`) and the Python wrapper currently have no YAML dependency; both speak JSON for the envelope already. Keeping host config in JSON means hosts that programmatically generate config (the common case) reuse the JSON serializer they already have. YAML would have forced a new `js-yaml` dependency into the wrapper repos solely to construct a config file the engine would parse and discard.
+
+Fifth, library extensibility. Hosts that want to build typed config builders, validators, or migration tools can use JSON Schema (well-supported across languages), generate config from any language's standard library, and ship the result without a YAML parser as a transitive dependency. The path to "library on top of the config format" is meaningfully shorter with JSON.
+
+**Tradeoff.** JSON has no native comment syntax. Hosts that want to annotate a config file (e.g., why a particular MCP server is included, why `auto_approve` is on for a CI bot) have two conventions: `_comment` keys that a validator would ignore, or an external `.md` companion file alongside the `.json`. The `_comment`-keys approach collides with D7's strict-unknown-key rule (every `_comment` would need a special case), which would erode the very strictness that catches typos. The recommended pattern is an external companion document — `aaa-config.md` next to `aaa-config.json` — when explanation is needed. Since the design's audience is programs and config is usually host-generated rather than hand-edited, this tradeoff costs little in the common case.
 
 ### D4 — Schema: four top-level keys, pass-through to module configs
 
 The config file has four top-level keys. The schema is a **pass-through** to the configs of the modules that `bundle.md` already declares — amplifier-agent does not invent vocabulary, rename keys, or curate which knobs the host can set. The block names match the modules they parameterize.
 
-```yaml
-mcp:
-  verbose_servers: false
-  server_log_dir: ~/.amplifier/logs/mcp-servers/
-  max_content_size: 50000
-  configPath: /etc/host/mcp.json
-
-approval:
-  patterns: ["rm -rf", "sudo"]
-  auto_approve: false
-  default_action: deny
-  policy_driven_only: false
-
-provider:
-  module: anthropic
-  config:
-    default_model: claude-sonnet-4-5
-    max_tokens: 8192
-
-allowProtocolSkew: false
+```json
+{
+  "mcp": {
+    "verbose_servers": false,
+    "server_log_dir": "~/.amplifier/logs/mcp-servers/",
+    "max_content_size": 50000,
+    "configPath": "/etc/host/mcp.json"
+  },
+  "approval": {
+    "patterns": ["rm -rf", "sudo"],
+    "auto_approve": false,
+    "default_action": "deny",
+    "policy_driven_only": false
+  },
+  "provider": {
+    "module": "anthropic",
+    "config": {
+      "default_model": "claude-sonnet-4-5",
+      "max_tokens": 8192
+    }
+  },
+  "allowProtocolSkew": false
+}
 ```
 
 Key-by-key rationale:
@@ -153,11 +169,13 @@ The existing `provider_detect.detect_provider()` env-var-sniffing path becomes *
 
 ### D7 — Schema validation: strict-by-default, no escape hatch
 
-- **Malformed YAML** → hard error. `error.code = "config_malformed_yaml"`, classification `protocol`, exit 2.
+- **Malformed JSON** → hard error. `error.code = "config_malformed_json"`, classification `protocol`, exit 2.
 - **Unknown top-level keys** (anything outside the four in D4) → hard error. `error.code = "config_unknown_key"`, classification `protocol`, exit 2. There is no `--strict-config` opt-in to soften this; strict IS the default.
-- **Top-level key present but no matching module mounted in the bundle** (e.g., the host writes a `notifications:` block but the bundle declares no notifications module) → hard error. `error.code = "config_no_matching_module"`, classification `protocol`, exit 2.
-- **Unknown keys INSIDE a pass-through block** (e.g., a key under `mcp:` that tool-mcp does not recognize) → module's responsibility. amplifier-agent passes the merged config through; whatever the module does about unknown keys is what happens. amplifier-agent does not intercept.
-- **`approval.patterns` list items** → each item must be a string. If any member is non-string (e.g., the YAML Norway case where `[no]` parses to `[False]`), hard error at parse time. The error message must instruct the host to quote bare strings.
+- **Top-level key present but no matching module mounted in the bundle** (e.g., the host writes a `notifications` block but the bundle declares no notifications module) → hard error. `error.code = "config_no_matching_module"`, classification `protocol`, exit 2.
+- **Value-type mismatch against the schema** (e.g., `provider.module` not a string, `mcp.max_content_size` not an integer, `approval.patterns` containing a non-string list member) → hard error. `error.code = "config_invalid_type"`, classification `protocol`, exit 2. JSON parses produce native types, so the same validation pass that catches `provider.module: 123` also catches `approval.patterns: [123]` or `approval.patterns: [false]` — no language-specific carve-out is needed.
+- **Unknown keys INSIDE a pass-through block** (e.g., a key under `mcp` that tool-mcp does not recognize) → module's responsibility. amplifier-agent passes the merged config through; whatever the module does about unknown keys is what happens. amplifier-agent does not intercept.
+
+Validation enforces top-level unknown-key strictness, the module-mount match for each top-level block, and value-type correctness per a JSON Schema (or equivalent runtime check). The previous draft carried a dedicated `approval.patterns` string-coercion guard to defend against the YAML Norway case (`[no]` parsing to `[False]`); D3's switch to JSON makes that carve-out unnecessary — JSON's explicit typing means `"no"` is always the string and `false` is always the boolean, and the generic `config_invalid_type` check covers any type-mismatch case uniformly.
 
 Forward-compatibility (older engine reading newer host's config) is the host's responsibility via `--protocol-version`. Rolling deploys that risk old-engine-new-config skew must coordinate via the version handshake. We accept this at v1 cadence.
 
@@ -222,19 +240,19 @@ The 2-tier resolution model (D1) is the central design choice for multi-host coe
 
 **Scenario A — Two co-resident programmatic hosts (e.g., NC container + Paperclip container, or NC + Paperclip on the same host without containers).**
 
-Each host sets `$AMPLIFIER_AGENT_CONFIG` in its own process scope at startup. NC's process tree has `AMPLIFIER_AGENT_CONFIG=/etc/nc/aaa.yaml`; Paperclip's has `AMPLIFIER_AGENT_CONFIG=/etc/paperclip/aaa.yaml`. Each amplifier-agent subprocess inherits its parent's environment and reads its own file. If hosts run in separate containers, the container boundary additionally isolates filesystem namespaces. If hosts run on the same host without containers, the per-process-tree env scope is sufficient. No collision.
+Each host sets `$AMPLIFIER_AGENT_CONFIG` in its own process scope at startup. NC's process tree has `AMPLIFIER_AGENT_CONFIG=/etc/nc/aaa.json`; Paperclip's has `AMPLIFIER_AGENT_CONFIG=/etc/paperclip/aaa.json`. Each amplifier-agent subprocess inherits its parent's environment and reads its own file. If hosts run in separate containers, the container boundary additionally isolates filesystem namespaces. If hosts run on the same host without containers, the per-process-tree env scope is sufficient. No collision.
 
 **Scenario B — Parallel CI jobs on a shared runner.**
 
-Each job sets `$AMPLIFIER_AGENT_CONFIG=$JOB_TMP/aaa.yaml` in its own job environment. With no XDG default, there is no shared `~/.config/amplifier-agent/config.yaml` for two jobs to contend over. The collision class that would otherwise bite CI most loudly is closed structurally.
+Each job sets `$AMPLIFIER_AGENT_CONFIG=$JOB_TMP/aaa.json` in its own job environment. With no XDG default, there is no shared `~/.config/amplifier-agent/config.json` for two jobs to contend over. The collision class that would otherwise bite CI most loudly is closed structurally.
 
 **Scenario C — Human direct invocation.**
 
-The operator runs `amplifier-agent run "hello"` with no config file present and no env var set. Both tiers miss; bundle defaults apply. Identical to today's behavior. If the operator wants overrides, they pass `--config /path/to/their/config.yaml` explicitly per invocation.
+The operator runs `amplifier-agent run "hello"` with no config file present and no env var set. Both tiers miss; bundle defaults apply. Identical to today's behavior. If the operator wants overrides, they pass `--config /path/to/their/config.json` explicitly per invocation.
 
 **Scenario D — A host wants to share baseline config across instances.**
 
-Each instance sets `$AMPLIFIER_AGENT_CONFIG=/etc/shared/aaa.yaml`. The "collision" on a single file is intentional sharing, not accidental. amplifier-agent does nothing special; the host expresses the intent by pointing both instances at the same path.
+Each instance sets `$AMPLIFIER_AGENT_CONFIG=/etc/shared/aaa.json`. The "collision" on a single file is intentional sharing, not accidental. amplifier-agent does nothing special; the host expresses the intent by pointing both instances at the same path.
 
 The asymmetry that makes D1 work: hosts that need isolation can express it via the env var (or `--config`); hosts that want sharing can express that too; the case that benefits from a zero-config default (the human) is also the case where bundle defaults are already sufficient. The XDG default served no constituency that the 2-tier model leaves uncovered.
 
@@ -261,7 +279,7 @@ Most tradeoffs were resolved in the design conversation that produced this doc. 
 | Dimension | Choice | What was sacrificed |
 |---|---|---|
 | **Resolution model** | 2-tier (flag + env), no XDG default | Zero-config experience for humans who wanted a known file location to edit. Mitigated: bundle defaults serve the human zero-config case. |
-| **Format** | YAML with `safe_load` | TOML's cleaner type system (no Norway problem). Engine takes the parse cost; the Norway risk is contained to `approval.patterns` (D7). |
+| **Format** | JSON | Native comment syntax (mitigated: external companion `.md` when explanation is needed). Gains: ecosystem consistency with the envelope/MCP-config/audit JSON surface; no `safe_load` mandate to enforce; no YAML Norway carve-out in D7; wrappers and host tooling stay free of YAML parser dependencies. |
 | **Schema shape** | Pass-through to module configs | Coupling to module schemas. Accepted because bundle is sealed; module set is known per release. |
 | **Validation strictness** | Strict-by-default, no escape hatch | Forward compatibility across engine versions. Pushed to the host via `--protocol-version`. |
 | **Auto-detect** | Removed (`provider_detect.detect_provider()` deleted) | "Just works without saying which provider." Replaced by `default_provider:` in the bundle. |
@@ -273,7 +291,7 @@ The optimization is for **mechanism purity** (amplifier-agent owns resolution, n
 
 This is a forward-only change; there is no existing host config file to migrate. Touch points, in commit-shape order:
 
-1. **Wire the `--config` stub** at `src/amplifier_agent_cli/modes/single_turn.py:406` to read the resolved path, parse with `yaml.safe_load`, validate per D7, and pass merged values into the bundle-mount step.
+1. **Wire the `--config` stub** at `src/amplifier_agent_cli/modes/single_turn.py:406` to read the resolved path, parse with `json.load`, validate per D7, and pass merged values into the bundle-mount step.
 2. **Implement the layered merge** (D5) at bundle-mount time. Bundle's static config is the base; the four pass-through blocks override per-key.
 3. **Extend `amplifier-agent config show`** per D8.
 4. **Refactor `bundle/cache.py` and `admin/doctor.py`** to import XDG helpers from `persistence.py` per D9. Normalize empty-string env handling.
@@ -289,10 +307,11 @@ The full task breakdown, test-first sequencing, and per-task acceptance criteria
 - `amplifier-agent run "..."` with no config file present and no env var set produces behavior identical to today (bundle defaults apply, no warnings).
 - A host that ships a 4-section config file gets its overrides applied to the matching modules. `amplifier-agent config show` confirms the resolved path, the resolution source, and the merged values.
 - Two co-resident hosts setting different `$AMPLIFIER_AGENT_CONFIG` values produce isolated behavior with no shared filesystem state and no observable interference between their amplifier-agent invocations.
-- Adversarial: `provider:` block with `module: "auto"` → hard error at validation. `"auto"` is not one of the four supported modules.
-- Adversarial: `approval.patterns: [no]` (bare YAML Norway word) → hard error at parse time with a message instructing the host to quote bare strings.
-- Adversarial: top-level `notifications: { foo: bar }` (unknown key) → hard error with `error.code = "config_unknown_key"`.
-- Adversarial: `--config /missing/path.yaml` → hard error with `error.code = "config_unreadable"`, exit 2. Same for `AMPLIFIER_AGENT_CONFIG=/missing/path.yaml`.
+- Adversarial: `provider` block with `"module": "auto"` → hard error at validation. `"auto"` is not one of the four supported modules.
+- Adversarial: `"approval": { "patterns": [123] }` (non-string list member) → hard error with `error.code = "config_invalid_type"`, classification `protocol`, exit 2. The same path catches `[false]`, `[null]`, or any other non-string member — JSON's explicit typing means no Norway-style ambiguity is possible.
+- Adversarial: top-level `"notifications": { "foo": "bar" }` (unknown key) → hard error with `error.code = "config_unknown_key"`.
+- Adversarial: `--config /missing/path.json` → hard error with `error.code = "config_unreadable"`, exit 2. Same for `AMPLIFIER_AGENT_CONFIG=/missing/path.json`.
+- Adversarial: a file containing `{ "mcp": { ` (truncated/malformed JSON) → hard error with `error.code = "config_malformed_json"`, exit 2.
 - Test suite, ruff, and pyright all clean after the touch-point work in §8.
 
 ## 10. What is NOT changed by this design
@@ -318,7 +337,7 @@ Five signals are listed in §6. Each maps to a monitoring concern, not a current
 - amplifier-agent is programs-first; the resolution model is built for that case (A1).
 - Module schemas are stable at amplifier-agent release cadence (the bundle is sealed).
 - Mid-session config drift is not a requirement today (I5).
-- The Norway problem is contained to one list-of-strings field (D7).
+- The format is JSON (D3), so type ambiguity (the YAML Norway class of bugs) does not apply, and the strict-validation rules in D7 cover every shape under one uniform `config_invalid_type` path.
 - Forward-compat across engine versions is the host's responsibility via `--protocol-version`, not amplifier-agent's via permissive validation.
 
 If any of those premises shift, the design needs revisiting. The signals to watch are named so a future maintainer can recognize the shift before it produces an incident.
