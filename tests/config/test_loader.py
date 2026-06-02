@@ -120,3 +120,48 @@ def test_load_config_raises_on_missing_env_path(
     assert exc.code == "config_unreadable"
     assert exc.classification == "protocol"
     assert missing in exc.message
+
+
+def test_load_config_rejects_unknown_top_level_key(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D7: unknown top-level key raises ConfigError(code='config_unknown_key').
+
+    The schema is closed at the top level. An unknown key like 'notifications'
+    must produce a hard error whose message names the offending key and lists
+    all four valid keys, so the operator can correct the config immediately.
+    """
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        '{"mcp": {}, "notifications": {"enabled": true}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(config_arg=str(cfg_path))
+    exc = exc_info.value
+    assert exc.code == "config_unknown_key"
+    assert exc.classification == "protocol"
+    assert "notifications" in exc.message
+    # All four valid keys must be listed for operator guidance.
+    assert "mcp" in exc.message
+    assert "approval" in exc.message
+    assert "provider" in exc.message
+    assert "allowProtocolSkew" in exc.message
+
+
+def test_load_config_accepts_all_four_known_keys(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D7: a config containing all four valid top-level keys parses cleanly."""
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        '{"mcp": {}, "approval": {}, "provider": {}, "allowProtocolSkew": false}',
+        encoding="utf-8",
+    )
+    result = load_config(config_arg=str(cfg_path))
+    assert result is not None
+    assert set(result.keys()) == {"mcp", "approval", "provider", "allowProtocolSkew"}

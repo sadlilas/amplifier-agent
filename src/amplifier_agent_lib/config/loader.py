@@ -9,8 +9,8 @@ Per D1, when **neither** tier is present, :func:`load_config` returns
 ``None`` — the caller (engine/CLI) treats this as "no host config" and
 falls back to hardcoded defaults.  Per D5, a JSON ``null`` literal at the
 document root is normalized to an empty dict (matching the omitted-block
-semantics), while non-mapping roots currently raise :class:`TypeError`
-(replaced by :class:`ConfigError` in B7).
+semantics).  Per D7, the top-level schema is closed: non-mapping roots
+and unknown top-level keys both raise :class:`ConfigError`.
 
 :class:`ConfigError` is defined here (rather than the package
 ``__init__``) so this module can raise it without creating a circular
@@ -76,8 +76,12 @@ def load_config(config_arg: str | None) -> dict[str, Any] | None:
         ConfigError: When the resolved file contains malformed JSON
             (D7, ``code='config_malformed_json'``,
             ``classification='protocol'``).
-        TypeError: Temporary guard when the parsed JSON root is not a
-            mapping; replaced by :class:`ConfigError` in B7.
+        ConfigError: When the parsed JSON root is not a mapping
+            (D7, ``code='config_malformed_json'``,
+            ``classification='protocol'``).
+        ConfigError: When the top-level mapping contains keys outside
+            the closed schema (D7, ``code='config_unknown_key'``,
+            ``classification='protocol'``).
     """
     path_str = config_arg or os.environ.get("AMPLIFIER_AGENT_CONFIG") or None
     if path_str is None:
@@ -103,6 +107,20 @@ def load_config(config_arg: str | None) -> dict[str, Any] | None:
         # D5: null literal at the root → empty dict, matching omitted-block semantics.
         return {}
     if not isinstance(parsed, dict):
-        # Temporary type guard — replaced by ConfigError in B7.
-        raise TypeError(f"config root must be a mapping, got {type(parsed).__name__}")
+        raise ConfigError(
+            code="config_malformed_json",
+            message=(f"Config root at {path} must be a JSON object, got {type(parsed).__name__}."),
+            classification="protocol",
+        )
+    unknown = set(parsed) - _VALID_TOP_LEVEL_KEYS
+    if unknown:
+        raise ConfigError(
+            code="config_unknown_key",
+            message=(
+                f"Unknown top-level config key(s): {sorted(unknown)}. "
+                f"Valid keys: {sorted(_VALID_TOP_LEVEL_KEYS)}. "
+                f"amplifier-agent's config schema is closed at the top level (D7)."
+            ),
+            classification="protocol",
+        )
     return parsed
