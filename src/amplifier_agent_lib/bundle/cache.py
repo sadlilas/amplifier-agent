@@ -22,11 +22,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import pickle
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from amplifier_agent_lib import persistence
 from amplifier_agent_lib.bundle import BUNDLE_MD
 from amplifier_agent_lib.bundle.loader import load_and_prepare_bundle
 
@@ -35,20 +35,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_CACHE_SUBDIR: str = "amplifier-agent/prepared"
 _ARTIFACT_NAME: str = "prepared.pickle"
 _MANIFEST_NAME: str = "manifest.json"
-
-
-def _xdg_cache_home() -> Path:
-    """Return the XDG cache home directory.
-
-    Reads ``$XDG_CACHE_HOME`` if set; falls back to ``~/.cache``.
-    """
-    xdg = os.environ.get("XDG_CACHE_HOME", "")
-    if xdg:
-        return Path(xdg)
-    return Path.home() / ".cache"
 
 
 def cache_dir_for_version(aaa_version: str, bundle_path: Path | None = None) -> Path:
@@ -60,6 +48,10 @@ def cache_dir_for_version(aaa_version: str, bundle_path: Path | None = None) -> 
     components fixes the F8 failure mode where two agents with identical version strings
     but different bundle manifests would share a cache directory and produce incorrect
     warm-path hits.
+
+    The XDG cache root is owned by :func:`amplifier_agent_lib.persistence.cache_root` —
+    this module routes its lookup through there to keep a single source of truth for
+    the cache layout (D9 of docs/designs/2026-05-19-baked-in-bundle-decision.md).
 
     Args:
         aaa_version: The AaA package version string (e.g. ``"1.0.0"``).
@@ -73,7 +65,7 @@ def cache_dir_for_version(aaa_version: str, bundle_path: Path | None = None) -> 
     """
     target = bundle_path if bundle_path is not None else BUNDLE_MD
     content_hash = hashlib.sha256(target.read_bytes()).hexdigest()[:16]
-    return _xdg_cache_home() / _CACHE_SUBDIR / aaa_version / content_hash
+    return persistence.cache_root() / "prepared" / aaa_version / content_hash
 
 
 async def load_and_prepare_cached(aaa_version: str) -> PreparedBundle:

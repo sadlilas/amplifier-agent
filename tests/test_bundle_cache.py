@@ -175,6 +175,37 @@ async def test_cache_dir_stable_for_same_content(tmp_path: Path, monkeypatch: py
     assert first == second
 
 
+def test_cache_dir_for_version_uses_persistence_cache_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """cache_dir_for_version() routes XDG lookup through persistence.cache_root() (D9).
+
+    Regression guard: the legacy private _xdg_cache_home() helper must be gone, and
+    the cache path must agree with persistence.cache_root() / 'prepared' / ... so
+    that there is a single source of truth for the XDG cache layout.
+    """
+    import amplifier_agent_lib.bundle.cache as cache_mod
+    from amplifier_agent_lib import persistence
+    from amplifier_agent_lib.bundle.cache import cache_dir_for_version
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+    # Private XDG helper must no longer exist on the module.
+    assert not hasattr(cache_mod, "_xdg_cache_home"), (
+        "_xdg_cache_home() must be removed; XDG lookup is owned by persistence.cache_root() (D9)"
+    )
+
+    bundle = tmp_path / "b.md"
+    bundle.write_text("---\nbundle:\n  name: persistence-route\n  version: 1.0.0\n---\n")
+
+    cache_dir = cache_dir_for_version("1.0.0", bundle_path=bundle)
+
+    # The cache dir must live under persistence.cache_root() / 'prepared' / <version> / <hash>.
+    expected_parent = persistence.cache_root() / "prepared" / "1.0.0"
+    assert cache_dir.parent == expected_parent, (
+        f"cache_dir_for_version must build paths from persistence.cache_root(); "
+        f"got parent {cache_dir.parent}, expected {expected_parent}"
+    )
+
+
 @pytest.mark.asyncio
 async def test_manifest_edit_invalidates_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Any edit to the bundle manifest must change the cache key.
