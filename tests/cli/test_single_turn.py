@@ -365,6 +365,28 @@ def test_run_engine_raising_aaa_error_returns_json_envelope(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Test E1: --env-allowlist flag is removed (D10)
+# ---------------------------------------------------------------------------
+
+
+def test_env_allowlist_flag_is_removed(runner: CliRunner) -> None:
+    """`--env-allowlist` is no longer a recognised CLI option (D10).
+
+    The flag was subsumed by the host config layer (E1). Click must reject
+    the unknown option with a non-zero exit code and a 'no such option'
+    style diagnostic.
+    """
+    result = runner.invoke(cli, ["run", "--env-allowlist", "PATH", "hello"])
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit because --env-allowlist is removed, got {result.exit_code}. Output:\n{result.output}"
+    )
+    haystack = (result.output or "").lower() + " " + str(result.exception or "").lower()
+    assert "no such option" in haystack, (
+        f"Expected click 'no such option' diagnostic, got:\n{result.output}\nException: {result.exception}"
+    )
+
+
 def test_run_loads_config_and_forwards_to_spec(
     runner: CliRunner,
     monkeypatch: pytest.MonkeyPatch,

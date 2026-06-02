@@ -202,11 +202,15 @@ def _write_audit(
     ended_at: str,
     argv: list[str],
     mcp_config_path: str | None,
-    env_allowlist: list[str] | None,
     env_extra: dict[str, Any] | None,
     protocol_version: str,
 ) -> None:
-    """SC-H — write per-turn audit digest. Secrets are sha256'd, never literal."""
+    """SC-H — write per-turn audit digest. Secrets are sha256'd, never literal.
+
+    Note: env allow-listing was removed in E1/D10 (host config subsumes it),
+    so the envDigest now only covers env_extra. The schema is stable —
+    ``envDigest`` is still emitted for every turn.
+    """
     from amplifier_agent_lib.persistence import session_state_dir
 
     if not session_id:
@@ -218,7 +222,7 @@ def _write_audit(
         # Path is non-secret; hashing gives a stable identifier for audit
         # correlation without dragging file I/O into the audit path.
         "mcpConfigPathDigest": (_sha256(mcp_config_path) if mcp_config_path else None),
-        "envDigest": _sha256(json.dumps({"allow": env_allowlist or [], "extra": env_extra or {}}, sort_keys=True)),
+        "envDigest": _sha256(json.dumps({"extra": env_extra or {}}, sort_keys=True)),
         "protocolVersion": protocol_version,
         "exitCode": exit_code,
         "correlationId": correlation_id,
@@ -454,12 +458,6 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
     help="Allow protocol version mismatch between client and engine (unsafe; for testing only).",
 )
 @click.option(
-    "--env-allowlist",
-    "env_allowlist_raw",
-    default=None,
-    help="Comma-separated env var names allowed into the engine subprocess.",
-)
-@click.option(
     "--env-extra",
     "env_extra_raw",
     default=None,
@@ -488,7 +486,6 @@ def run(
     output_mode: str,
     mcp_config_path: str | None,
     allow_protocol_skew: bool,
-    env_allowlist_raw: str | None,
     env_extra_raw: str | None,
     protocol_version_arg: str | None,
 ) -> None:
@@ -565,12 +562,12 @@ def run(
                 f"--mcp-config-path: file not found: {mcp_config_path}",
             )
 
-    # (5c) Parse env extras and env allowlist (A1').
-    # env_extra and env_allowlist are parsed here but threaded into the engine
-    # subprocess wiring in a later task (D12' completion); the surface is
-    # exposed now so wrappers can begin passing them without an interface bump.
+    # (5c) Parse env extras (A1'). The previous --env-allowlist flag was removed
+    # in E1/D10: env allow-listing is now a host-config concern, not an argv
+    # concern. env_extra is parsed here but threaded into the engine subprocess
+    # wiring in a later task (D12' completion); the surface is exposed now so
+    # wrappers can begin passing it without an interface bump.
     env_extra = _parse_json_or_atpath(env_extra_raw, flag_name="--env-extra")
-    env_allowlist = [k.strip() for k in env_allowlist_raw.split(",") if k.strip()] if env_allowlist_raw else None
 
     # (5d) Protocol version self-validation (D6 mechanism shift).
     if protocol_version_arg and not (allow_protocol_skew or os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")):
@@ -642,7 +639,6 @@ def run(
             ended_at=datetime.now(UTC).isoformat(),
             argv=sys.argv,
             mcp_config_path=mcp_config_path,
-            env_allowlist=env_allowlist,
             env_extra=env_extra,
             protocol_version=PROTOCOL_VERSION,
         )
@@ -668,7 +664,6 @@ def run(
             ended_at=datetime.now(UTC).isoformat(),
             argv=sys.argv,
             mcp_config_path=mcp_config_path,
-            env_allowlist=env_allowlist,
             env_extra=env_extra,
             protocol_version=PROTOCOL_VERSION,
         )
@@ -696,7 +691,6 @@ def run(
         ended_at=datetime.now(UTC).isoformat(),
         argv=sys.argv,
         mcp_config_path=mcp_config_path,
-        env_allowlist=env_allowlist,
         env_extra=env_extra,
         protocol_version=PROTOCOL_VERSION,
     )
