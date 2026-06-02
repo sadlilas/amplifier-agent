@@ -6,7 +6,7 @@ as guardrails — choose at PR time) once the cleanup lands.
 
 from click.testing import CliRunner
 
-from amplifier_agent_cli.modes.single_turn import run
+from amplifier_agent_cli.modes.single_turn import _build_envelope, run
 
 
 def test_host_capabilities_flag_not_in_help() -> None:
@@ -16,4 +16,25 @@ def test_host_capabilities_flag_not_in_help() -> None:
     assert result.exit_code == 0, result.output
     assert "--host-capabilities" not in result.output, (
         "--host-capabilities flag should be removed from `amplifier-agent run`"
+    )
+
+
+def test_success_envelope_metadata_excludes_host_capabilities() -> None:
+    """_build_envelope must NOT include hostCapabilities in metadata."""
+    result = {
+        "sessionId": "sess-1",
+        "turnId": "turn-1",
+        "reply": "ok",
+        "tokensIn": 1,
+        "tokensOut": 2,
+        "bundleDigest": "sha256:abc",
+    }
+    envelope = _build_envelope(
+        result,
+        correlation_id="corr-1",
+        duration_ms=42,
+        session_id="sess-1",
+    )
+    assert "hostCapabilities" not in envelope["metadata"], (
+        "hostCapabilities must not appear in success envelope metadata"
     )

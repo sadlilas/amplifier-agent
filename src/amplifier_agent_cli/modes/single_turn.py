@@ -277,7 +277,6 @@ def _build_envelope(
     result: dict[str, Any],
     *,
     correlation_id: str,
-    host_capabilities: dict[str, Any] | None,
     duration_ms: int,
     session_id: str = "",
 ) -> dict[str, Any]:
@@ -295,8 +294,6 @@ def _build_envelope(
         "protocolVersion": PROTOCOL_VERSION,
         "correlationId": correlation_id,
     }
-    if host_capabilities is not None:
-        metadata["hostCapabilities"] = host_capabilities
     return {
         "protocolVersion": PROTOCOL_VERSION,
         "sessionId": session_id or result.get("sessionId", ""),
@@ -646,7 +643,6 @@ def run(
         envelope = _build_envelope(
             result,
             correlation_id=correlation_id,
-            host_capabilities=host_capabilities,
             duration_ms=duration_ms,
             session_id=session_id or "",
         )
