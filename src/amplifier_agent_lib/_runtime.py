@@ -84,18 +84,33 @@ def make_turn_handler(
         os.environ["AMPLIFIER_MCP_CONFIG"] = mcp_config_path
 
     # D5: Overlay host-supplied config over the bundle's static module
-    # configs at the bundle-mount seam.  ``merge_config`` deep-copies the
-    # bundle dict so the merge cannot reach back into the bundle's declared
-    # config; we write only the merged dict back into ``mount_plan`` so
-    # foundation's mount logic sees the host overrides.  The ``agents`` key
-    # is owned by the loader (it is not a module config block) and is left
-    # untouched.
+    # configs at the bundle-mount seam.  ``merge_config`` expects
+    # ``{module_id: config_dict}``, but ``mount_plan["tools"|"hooks"|
+    # "providers"]`` are LISTS of ``{module, config, source}`` dicts (the
+    # shape ``Bundle.to_mount_plan()`` produces). Build the {module_id:
+    # config_dict} view, run the merge, then write the merged values back
+    # into the SAME list entries in-place so the kernel sees the overrides
+    # at ``mount_plan["tools"][n]["config"]`` etc.  ``mount_plan`` is
+    # declared non-Optional on ``PreparedBundle``; we still guard with
+    # ``or []`` per section in case a bundle omits a section entirely.
+    mount_plan: dict[str, Any] = prepared.mount_plan or {}
+    bundle_module_configs: dict[str, dict] = {}
+    for section in ("tools", "hooks", "providers"):
+        for entry in mount_plan.get(section) or []:
+            mid = entry.get("module")
+            if mid:
+                bundle_module_configs[mid] = dict(entry.get("config") or {})
+
     merged_modules, _allow_skew = merge_config(
-        bundle_modules=dict(prepared.mount_plan or {}),
+        bundle_modules=bundle_module_configs,
         host_config=host_config,
     )
-    if prepared.mount_plan is not None:
-        prepared.mount_plan.update({k: v for k, v in merged_modules.items() if k != "agents"})
+
+    for section in ("tools", "hooks", "providers"):
+        for entry in mount_plan.get(section) or []:
+            mid = entry.get("module")
+            if mid and mid in merged_modules:
+                entry["config"] = merged_modules[mid]
 
     # Pre-hydrate agent overlays from the vendored agent markdown files.
     # This is done once at handler-creation time (cold path) so each turn
