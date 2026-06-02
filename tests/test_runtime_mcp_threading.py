@@ -9,9 +9,9 @@ reads the file via its standard config discovery (config.py priority chain).
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
