@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
-import os
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -26,7 +25,7 @@ import click
 import yaml as _yaml
 
 from amplifier_agent_cli.provider_detect import ProviderNotConfigured, detect_provider
-from amplifier_agent_lib import __version__
+from amplifier_agent_lib import __version__, persistence
 from amplifier_agent_lib.bundle.cache import cache_dir_for_version
 
 _OK: str = "[ OK ]"
@@ -67,12 +66,6 @@ def _check_provider() -> tuple[bool, str]:
         return (True, f"{_OK} provider: {name}")
     except ProviderNotConfigured as exc:
         return (False, f"{_FAIL} provider: {exc.message}")
-
-
-def _xdg(env_var: str, default: Path) -> Path:
-    """Return XDG path from environment or the given default."""
-    value = os.environ.get(env_var)
-    return Path(value) if value else default
 
 
 def _check_writable(label: str, path: Path) -> tuple[bool, str]:
@@ -411,10 +404,9 @@ async def _check_session_store_roundtrip() -> tuple[bool, str]:
 )
 def doctor(strict: bool, quick: bool, emit_sha: bool) -> None:
     """Run self-diagnostics and report system health."""
-    home = Path(os.environ.get("HOME", str(Path.home())))
-    cfg = _xdg("XDG_CONFIG_HOME", home / ".config") / "amplifier-agent"
-    cache = _xdg("XDG_CACHE_HOME", home / ".cache") / "amplifier-agent"
-    state = _xdg("XDG_STATE_HOME", home / ".local" / "state") / "amplifier-agent"
+    cfg = persistence.config_root()
+    cache = persistence.cache_root()
+    state = persistence.state_root()
 
     cache_info = check_cache_state(__version__)
     is_prepared = cache_info.status == "prepared"

@@ -208,6 +208,22 @@ def test_doctor_does_not_call_load_and_prepare_cached() -> None:
     )
 
 
+def test_doctor_uses_persistence_for_xdg_paths() -> None:
+    """doctor.py must not define a local _xdg() helper.
+
+    Per D9, XDG path lookup is consolidated through
+    amplifier_agent_lib.persistence.{config_root,cache_root,state_root}.
+    The previous private _xdg() helper in admin/doctor.py is a duplicate
+    of the persistence-layer logic and must be removed.
+    """
+    from amplifier_agent_cli.admin import doctor as doctor_mod
+
+    assert hasattr(doctor_mod, "_xdg") is False, (
+        "doctor.py must not define _xdg(); use persistence.config_root() / "
+        "cache_root() / state_root() instead (D9)."
+    )
+
+
 def test_doctor_bundle_cache_uses_structured_format(
     runner: CliRunner,
     writable_xdg: dict[str, str],
