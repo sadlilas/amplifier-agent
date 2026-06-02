@@ -282,6 +282,14 @@ This project follows the Microsoft Open Source [Code of Conduct](CODE_OF_CONDUCT
 - For security disclosures, see [`SECURITY.md`](SECURITY.md).
 - For support guidance, see [`SUPPORT.md`](SUPPORT.md).
 
+## Trademarks
+
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
+trademarks or logos is subject to and must follow
+[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/legal/intellectualproperty/trademarks/usage/general).
+Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
+Any use of third-party trademarks or logos are subject to those third-party's policies.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
