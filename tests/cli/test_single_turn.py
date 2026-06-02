@@ -350,3 +350,37 @@ def test_run_engine_raising_aaa_error_returns_json_envelope(
     parsed = json.loads(result.stdout)
     assert parsed["error"]["code"] == "bundle_load_failed"
     assert parsed["error"]["message"] == "bad bundle"
+
+
+# ---------------------------------------------------------------------------
+# Test D2: --config flag is forwarded to load_config and host_config lands on _TurnSpec
+# ---------------------------------------------------------------------------
+
+
+def test_run_loads_config_and_forwards_to_spec(
+    runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """--config <path> calls load_config(config_arg=<path>) and forwards the result to _TurnSpec."""
+    _set_anthropic(monkeypatch)
+    # Write a config file (load_config is patched below so contents are irrelevant for the call,
+    # but the file must look real for click.Path() validation in case it gains exists=True later).
+    cfg = tmp_path / "host.json"
+    cfg.write_text("{}", encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+    sentinel_host_config = {"defaults": {"approval": {"mode": "yes"}}}
+
+    def _fake_load_config(config_arg=None):
+        captured["arg"] = config_arg
+        return sentinel_host_config
+
+    patch_exec, exec_captured = _patch_execute_turn()
+    with patch("amplifier_agent_cli.modes.single_turn.load_config", _fake_load_config), patch_exec:
+        result = runner.invoke(cli, ["run", "--config", str(cfg), "hello"])
+
+    assert result.exit_code == 0, f"Expected exit 0, got {result.exit_code}. Output:\n{result.output}"
+    assert captured["arg"] == str(cfg)
+    assert len(exec_captured) == 1
+    assert exec_captured[0].host_config is sentinel_host_config

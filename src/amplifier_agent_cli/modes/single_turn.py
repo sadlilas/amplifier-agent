@@ -25,6 +25,7 @@ from amplifier_agent_cli.tty_detect import is_stdin_tty
 from amplifier_agent_lib import __version__
 from amplifier_agent_lib._runtime import make_turn_handler
 from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
+from amplifier_agent_lib.config import ConfigError, load_config
 from amplifier_agent_lib.engine import Engine
 from amplifier_agent_lib.protocol import PROTOCOL_VERSION, server_default_capabilities
 from amplifier_agent_lib.protocol.errors import AaaError
@@ -318,6 +319,7 @@ class _TurnSpec:
     provider: str  # detected provider short-name (e.g. 'anthropic')
     allow_protocol_skew: bool = False
     mcp_config_path: str | None = None
+    host_config: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +543,16 @@ def run(
                 ),
             )
 
+    # (5e) Load host configuration (D1). ConfigError subclasses AaaError with
+    # classification='protocol', so _emit_argv_envelope maps it to exit code 2
+    # via _EXIT_CODE_BY_CLASSIFICATION. _emit_argv_envelope calls sys.exit
+    # internally, so control does not return from the except branch.
+    try:
+        host_config = load_config(config_arg=config_path)
+    except ConfigError as exc:
+        _emit_argv_envelope(exc.code, exc.message, exit_code=2)
+        return  # unreachable; _emit_argv_envelope calls sys.exit
+
     # (6) Build spec.
     spec = _TurnSpec(
         prompt=prompt,
@@ -553,6 +565,7 @@ def run(
         provider=provider_name,
         allow_protocol_skew=allow_protocol_skew or bool(os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")),
         mcp_config_path=mcp_config_path,
+        host_config=host_config,
     )
 
     # (7) Run with error handling.
