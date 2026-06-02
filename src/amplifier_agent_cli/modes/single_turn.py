@@ -238,7 +238,6 @@ def _build_error_envelope(
     correlation_id: str,
     session_id: str,
     turn_id: str,
-    host_capabilities: dict[str, Any] | None,
     duration_ms: int,
     stderr_tail: str | None = None,
 ) -> dict[str, Any]:
@@ -252,8 +251,6 @@ def _build_error_envelope(
         "protocolVersion": PROTOCOL_VERSION,
         "correlationId": correlation_id,
     }
-    if host_capabilities is not None:
-        metadata["hostCapabilities"] = host_capabilities
     error: dict[str, Any] = {
         "code": code,
         "classification": classification,
@@ -589,7 +586,6 @@ def run(
             correlation_id=correlation_id,
             session_id=session_id or "",
             turn_id="turn-1",
-            host_capabilities=host_capabilities,
             duration_ms=duration_ms,
         )
         _real_stdout.write(json.dumps(envelope) + "\n")
@@ -618,7 +614,6 @@ def run(
             correlation_id=correlation_id,
             session_id=session_id or "",
             turn_id="turn-1",
-            host_capabilities=host_capabilities,
             duration_ms=duration_ms,
         )
         _real_stdout.write(json.dumps(envelope) + "\n")

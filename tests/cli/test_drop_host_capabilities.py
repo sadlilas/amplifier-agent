@@ -6,7 +6,7 @@ as guardrails — choose at PR time) once the cleanup lands.
 
 from click.testing import CliRunner
 
-from amplifier_agent_cli.modes.single_turn import _build_envelope, run
+from amplifier_agent_cli.modes.single_turn import _build_envelope, _build_error_envelope, run
 
 
 def test_host_capabilities_flag_not_in_help() -> None:
@@ -38,3 +38,16 @@ def test_success_envelope_metadata_excludes_host_capabilities() -> None:
     assert "hostCapabilities" not in envelope["metadata"], (
         "hostCapabilities must not appear in success envelope metadata"
     )
+
+
+def test_error_envelope_metadata_excludes_host_capabilities() -> None:
+    """_build_error_envelope must NOT accept host_capabilities nor emit it."""
+    envelope = _build_error_envelope(
+        code="internal",
+        message="boom",
+        correlation_id="corr-1",
+        session_id="sess-1",
+        turn_id="turn-1",
+        duration_ms=42,
+    )
+    assert "hostCapabilities" not in envelope["metadata"], "hostCapabilities must not appear in error envelope metadata"
