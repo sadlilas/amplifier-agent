@@ -116,6 +116,42 @@ def test_config_show_reports_flag_resolution_source(
     assert parsed["host_config"]["source"] == "--config flag"
 
 
+def test_config_show_reports_env_resolution_source(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When $AMPLIFIER_AGENT_CONFIG is set (and no --config flag), host_config reports
+    path=<env-path> and source='$AMPLIFIER_AGENT_CONFIG env' (D8).
+    """
+    cfg = tmp_path / "host.toml"
+    cfg.write_text("# stub host config\n", encoding="utf-8")
+    env = {
+        "HOME": str(tmp_path),
+        "AMPLIFIER_AGENT_CONFIG": str(cfg),
+    }
+    result = runner.invoke(cli, ["config", "show"], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["path"] == str(cfg)
+    assert parsed["host_config"]["source"] == "$AMPLIFIER_AGENT_CONFIG env"
+
+
+def test_config_show_reports_no_source_when_absent(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When neither --config flag nor $AMPLIFIER_AGENT_CONFIG is set, host_config
+    reports path=None and source='none' (D8).
+    """
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    env = {
+        "HOME": str(tmp_path),
+    }
+    result = runner.invoke(cli, ["config", "show"], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["path"] is None
+    assert parsed["host_config"]["source"] == "none"
+
+
 def test_config_show_reports_bundle_default_even_with_no_env_vars(runner: CliRunner, tmp_path: Path) -> None:
     """Provider resolution is decoupled from env vars (E5/D6).
 
