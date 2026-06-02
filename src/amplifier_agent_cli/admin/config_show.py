@@ -33,6 +33,19 @@ def _annotate_env_or_default(env_var: str, default: Path) -> dict[str, Any]:
     return {"value": str(default), "source": "default"}
 
 
+def _resolve_host_config(config_arg: str | None) -> dict[str, Any]:
+    """Report the resolved host config path + source (D8).
+
+    Precedence: --config flag > $AMPLIFIER_AGENT_CONFIG env > none. Never raises.
+    """
+    if config_arg is not None:
+        return {"path": config_arg, "source": "--config flag"}
+    env_val = os.environ.get("AMPLIFIER_AGENT_CONFIG")
+    if env_val:
+        return {"path": env_val, "source": "$AMPLIFIER_AGENT_CONFIG env"}
+    return {"path": None, "source": "none"}
+
+
 def _resolve_provider() -> dict[str, Any]:
     """Determine the active provider from the vendored bundle.md default (D6).
 
@@ -57,12 +70,20 @@ def config_group() -> None:
 
 
 @config_group.command(name="show")
-def config_show() -> None:
+@click.option(
+    "--config",
+    "config_path",
+    default=None,
+    type=click.Path(),
+    help="Path to host config file.",
+)
+def config_show(config_path: str | None) -> None:
     """Print resolved configuration as JSON with source annotations."""
     home = Path(os.environ.get("HOME", str(Path.home())))
 
     payload: dict[str, Any] = {
         "provider": _resolve_provider(),
+        "host_config": _resolve_host_config(config_path),
         "xdg_config_home": _annotate_env_or_default("XDG_CONFIG_HOME", home / ".config"),
         "xdg_cache_home": _annotate_env_or_default("XDG_CACHE_HOME", home / ".cache"),
         "xdg_state_home": _annotate_env_or_default("XDG_STATE_HOME", home / ".local" / "state"),

@@ -96,6 +96,26 @@ def test_config_show_reports_default_when_env_absent(runner: CliRunner, tmp_path
     assert parsed["xdg_config_home"]["source"] == "default"
 
 
+def test_config_show_reports_flag_resolution_source(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When --config <path> is passed, host_config reports path=<path> and source='--config flag' (D8)."""
+    cfg = tmp_path / "host.toml"
+    cfg.write_text("# stub host config\n", encoding="utf-8")
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    env = {
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "ANTHROPIC_API_KEY": "sk-test",
+    }
+    result = runner.invoke(cli, ["config", "show", "--config", str(cfg)], env=env)
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["host_config"]["path"] == str(cfg)
+    assert parsed["host_config"]["source"] == "--config flag"
+
+
 def test_config_show_reports_bundle_default_even_with_no_env_vars(runner: CliRunner, tmp_path: Path) -> None:
     """Provider resolution is decoupled from env vars (E5/D6).
 
