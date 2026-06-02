@@ -87,3 +87,36 @@ def test_load_config_raises_on_malformed_json(
     assert exc.code == "config_malformed_json"
     assert exc.classification == "protocol"
     assert str(cfg_path) in exc.message
+
+
+def test_load_config_raises_on_missing_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D2: --config pointing at a missing path raises ConfigError(code='config_unreadable')."""
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    missing = "/missing/path/definitely/not/there.json"
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(config_arg=missing)
+    exc = exc_info.value
+    assert exc.code == "config_unreadable"
+    assert exc.classification == "protocol"
+    assert missing in exc.message
+
+
+def test_load_config_raises_on_missing_env_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D2: $AMPLIFIER_AGENT_CONFIG pointing at a missing path is NOT silently ignored.
+
+    Setting the env var is an affirmative declaration that a config exists at
+    that path; if the path does not exist we surface ConfigError rather than
+    fall through to "no host config" defaults.
+    """
+    missing = "/missing/path/from/env/config.json"
+    monkeypatch.setenv("AMPLIFIER_AGENT_CONFIG", missing)
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(config_arg=None)
+    exc = exc_info.value
+    assert exc.code == "config_unreadable"
+    assert exc.classification == "protocol"
+    assert missing in exc.message

@@ -67,6 +67,12 @@ def load_config(config_arg: str | None) -> dict[str, Any] | None:
         ``$AMPLIFIER_AGENT_CONFIG`` env var is set (D1).
 
     Raises:
+        ConfigError: When the resolved file is missing or unreadable
+            (D2, ``code='config_unreadable'``,
+            ``classification='protocol'``).  Note that setting
+            ``$AMPLIFIER_AGENT_CONFIG`` is treated as an affirmative
+            declaration; a missing path from env raises just like a
+            missing path from the flag (not silently ignored).
         ConfigError: When the resolved file contains malformed JSON
             (D7, ``code='config_malformed_json'``,
             ``classification='protocol'``).
@@ -77,7 +83,14 @@ def load_config(config_arg: str | None) -> dict[str, Any] | None:
     if path_str is None:
         return None
     path = Path(path_str)
-    raw = path.read_text(encoding="utf-8")
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, PermissionError, IsADirectoryError, OSError) as exc:
+        raise ConfigError(
+            code="config_unreadable",
+            message=f"Cannot read config at {path}: {exc.__class__.__name__}: {exc}",
+            classification="protocol",
+        ) from exc
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
