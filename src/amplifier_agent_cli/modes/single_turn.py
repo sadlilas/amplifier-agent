@@ -20,10 +20,11 @@ from typing import Any
 
 import click
 
-from amplifier_agent_cli.provider_detect import ProviderNotConfigured, detect_provider
+from amplifier_agent_cli.provider_detect import detect_provider  # noqa: F401 — kept until E5 removes the symbol
 from amplifier_agent_cli.tty_detect import is_stdin_tty
 from amplifier_agent_lib import __version__
 from amplifier_agent_lib._runtime import make_turn_handler
+from amplifier_agent_lib.bundle import BUNDLE_MD
 from amplifier_agent_lib.bundle.cache import load_and_prepare_cached
 from amplifier_agent_lib.config import ConfigError, load_config
 from amplifier_agent_lib.engine import Engine
@@ -39,6 +40,32 @@ from amplifier_agent_lib.protocol_points.defaults_cli import CliApprovalSystem, 
 def _emit_error(code: str, message: str) -> None:
     """Write a JSON error envelope to stdout."""
     click.echo(json.dumps({"error": {"code": code, "message": message}}, indent=2))
+
+
+def _read_bundle_default_provider() -> str:
+    """Read ``default_provider:`` from the vendored bundle.md manifest (D6).
+
+    The bundle.md ships a top-level ``default_provider:`` field that names the
+    fallback provider when neither ``--provider`` nor ``host.provider.module``
+    is configured. Missing/non-string values are bundle integrity errors and
+    raise ``AaaError(code='bundle_load_failed')``.
+    """
+    import yaml
+
+    text = BUNDLE_MD.read_text(encoding="utf-8")
+    parts = text.split("---\n")
+    manifest = yaml.safe_load(parts[1]) or {}
+    default = manifest.get("default_provider")
+    if not isinstance(default, str):
+        raise AaaError(
+            code="bundle_load_failed",
+            message=(
+                "bundle.md missing required `default_provider:` top-level field. "
+                "This is a bundle integrity error (D6); reinstall amplifier-agent."
+            ),
+            classification="protocol",
+        )
+    return default
 
 
 def _resolve_approval_mode(yes: bool, no: bool) -> str:
@@ -500,12 +527,26 @@ def run(
         )
         sys.exit(2)
 
-    # (4) Provider detection.
+    # (3b) Load host configuration (D1). Must run before provider resolution
+    # so that host.provider.module can outrank the bundle default. ConfigError
+    # subclasses AaaError with classification='protocol', so _emit_argv_envelope
+    # maps it to exit code 2 via _EXIT_CODE_BY_CLASSIFICATION.
     try:
-        provider_name = detect_provider(override=provider_override)
-    except ProviderNotConfigured as exc:
-        _emit_error(exc.code, exc.message)
-        sys.exit(1)
+        host_config = load_config(config_arg=config_path)
+    except ConfigError as exc:
+        _emit_argv_envelope(exc.code, exc.message, exit_code=2)
+        return  # unreachable; _emit_argv_envelope calls sys.exit
+
+    # (4) Provider resolution (D6). Priority:
+    #     --provider override > host.provider.module > bundle default_provider.
+    # detect_provider() is no longer called on the happy path; bundle.md is the
+    # source of truth for the default provider when nothing else is configured.
+    if provider_override is not None:
+        provider_name = provider_override
+    elif isinstance(host_config, dict) and isinstance(host_config.get("provider"), dict):
+        provider_name = host_config["provider"].get("module") or _read_bundle_default_provider()
+    else:
+        provider_name = _read_bundle_default_provider()
 
     # (5) Protocol points.
     approval = CliApprovalSystem(mode=_resolve_approval_mode(yes_flag, no_flag))
@@ -543,16 +584,6 @@ def run(
                     "`npm install amplifier-agent-client-ts@latest`."
                 ),
             )
-
-    # (5e) Load host configuration (D1). ConfigError subclasses AaaError with
-    # classification='protocol', so _emit_argv_envelope maps it to exit code 2
-    # via _EXIT_CODE_BY_CLASSIFICATION. _emit_argv_envelope calls sys.exit
-    # internally, so control does not return from the except branch.
-    try:
-        host_config = load_config(config_arg=config_path)
-    except ConfigError as exc:
-        _emit_argv_envelope(exc.code, exc.message, exit_code=2)
-        return  # unreachable; _emit_argv_envelope calls sys.exit
 
     # (6) Build spec.
     spec = _TurnSpec(

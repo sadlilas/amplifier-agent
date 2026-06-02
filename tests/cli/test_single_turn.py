@@ -319,11 +319,19 @@ def test_run_missing_prompt_and_non_tty_fails_with_prompt_required(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(reason="moved to E5: detect_provider removal")
 def test_run_no_provider_configured_errors(
     runner: CliRunner,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When no provider env vars are set, exit 1 and JSON error.code on stdout."""
+    """When no provider env vars are set, exit 1 and JSON error.code on stdout.
+
+    Disabled as part of D6: the CLI no longer routes through detect_provider()
+    on the happy path. The bundle default_provider fallback means missing env
+    vars no longer surface a ``provider_not_configured`` envelope here; the
+    failure (if any) now manifests downstream inside the provider module.
+    E5 removes detect_provider() entirely and this test along with it.
+    """
     for var in _PROVIDER_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     result = runner.invoke(cli, ["run", "some prompt"])
