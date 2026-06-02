@@ -154,8 +154,15 @@ def test_protocol_version_mismatch_yields_envelope() -> None:
     assert "remediation" in envelope["error"]
 
 
-def test_protocol_version_skew_suppressed_by_flag() -> None:
-    """--protocol-version 9.9.9 + --allow-protocol-skew → no error, normal flow."""
+def test_protocol_version_skew_suppressed_by_config(tmp_path) -> None:
+    """--protocol-version 9.9.9 + config(allowProtocolSkew: true) → no error, normal flow.
+
+    The --allow-protocol-skew argv flag was removed (E3 / D10); the unsafe
+    override now lives in the host config file under ``allowProtocolSkew: true``.
+    """
+    config_file = tmp_path / "host.json"
+    config_file.write_text('{"allowProtocolSkew": true}\n', encoding="utf-8")
+
     runner = CliRunner()
     with (
         patch(
@@ -171,7 +178,8 @@ def test_protocol_version_skew_suppressed_by_flag() -> None:
                 "sid-1",
                 "--protocol-version",
                 "9.9.9-NOT-REAL",
-                "--allow-protocol-skew",
+                "--config",
+                str(config_file),
                 "hello",
             ],
         )
@@ -187,11 +195,12 @@ def test_engine_exception_yields_error_envelope_shape() -> None:
         raise EngineAaaError("approval_translation_failed", "bad action 'review'")
 
     runner = CliRunner()
-    with patch(
-        "amplifier_agent_cli.modes.single_turn._execute_turn",
-        side_effect=raise_engine_error,
-    ), patch(
-        "amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"
+    with (
+        patch(
+            "amplifier_agent_cli.modes.single_turn._execute_turn",
+            side_effect=raise_engine_error,
+        ),
+        patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"),
     ):
         result = runner.invoke(run, ["--session-id", "sid-1", "hello"])
 

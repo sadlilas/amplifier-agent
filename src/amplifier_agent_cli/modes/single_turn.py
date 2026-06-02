@@ -451,13 +451,6 @@ async def _execute_turn(spec: _TurnSpec) -> dict[str, Any]:
     help="Path to MCP config JSON (see amplifier-module-tool-mcp for the schema; written by the host/wrapper).",
 )
 @click.option(
-    "--allow-protocol-skew",
-    "allow_protocol_skew",
-    is_flag=True,
-    default=False,
-    help="Allow protocol version mismatch between client and engine (unsafe; for testing only).",
-)
-@click.option(
     "--protocol-version",
     "protocol_version_arg",
     default=None,
@@ -479,7 +472,6 @@ def run(
     quiet: bool,
     output_mode: str,
     mcp_config_path: str | None,
-    allow_protocol_skew: bool,
     protocol_version_arg: str | None,
 ) -> None:
     """Run the agent in single-turn mode (Mode A).
@@ -560,15 +552,16 @@ def run(
     # are now host-config concerns, not argv-validation concerns. Wrappers
     # express both via the host config file consumed by load_config().
 
-    # (5d) Protocol version self-validation (D6 mechanism shift).
-    if protocol_version_arg and not (allow_protocol_skew or os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")):
+    # (5d) Protocol version self-validation (D6 mechanism shift; D10: skew flag
+    # now sourced from host_config['allowProtocolSkew'], not from argv).
+    if protocol_version_arg and not bool((host_config or {}).get("allowProtocolSkew", False)):
         if protocol_version_arg != PROTOCOL_VERSION:
             _emit_argv_envelope(
                 "protocol_version_mismatch",
                 f"Wrapper expects protocol {protocol_version_arg}, engine compiled with {PROTOCOL_VERSION}.",
                 remediation=(
-                    "To force, pass --allow-protocol-skew (unsafe) or reinstall both: "
-                    "`uv tool install --reinstall amplifier-agent` and "
+                    "To force, set `allowProtocolSkew: true` in your --config file (unsafe) "
+                    "or reinstall both: `uv tool install --reinstall amplifier-agent` and "
                     "`npm install amplifier-agent-client-ts@latest`."
                 ),
             )
@@ -583,7 +576,7 @@ def run(
         approval=approval,
         display=display,
         provider=provider_name,
-        allow_protocol_skew=allow_protocol_skew or bool(os.environ.get("AMPLIFIER_AGENT_ALLOW_PROTOCOL_SKEW")),
+        allow_protocol_skew=bool((host_config or {}).get("allowProtocolSkew", False)),
         mcp_config_path=mcp_config_path,
         host_config=host_config,
     )

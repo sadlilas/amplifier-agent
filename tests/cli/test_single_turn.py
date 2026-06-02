@@ -409,6 +409,29 @@ def test_env_extra_flag_is_removed(runner: CliRunner) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Test E3: --allow-protocol-skew flag is removed (D10)
+# ---------------------------------------------------------------------------
+
+
+def test_allow_protocol_skew_flag_is_removed(runner: CliRunner) -> None:
+    """`--allow-protocol-skew` is no longer a recognised CLI option (D10).
+
+    The flag was subsumed by the host config layer (E3 / D10). Click must
+    reject the unknown option with a non-zero exit code and a 'no such
+    option' style diagnostic. Wrappers now express the (unsafe) override
+    via ``allowProtocolSkew: true`` in the --config file.
+    """
+    result = runner.invoke(cli, ["run", "--allow-protocol-skew", "hello"])
+    assert result.exit_code != 0, (
+        f"Expected non-zero exit because --allow-protocol-skew is removed, got {result.exit_code}. Output:\n{result.output}"
+    )
+    haystack = (result.output or "").lower() + " " + str(result.exception or "").lower()
+    assert "no such option" in haystack, (
+        f"Expected click 'no such option' diagnostic, got:\n{result.output}\nException: {result.exception}"
+    )
+
+
 def test_run_loads_config_and_forwards_to_spec(
     runner: CliRunner,
     monkeypatch: pytest.MonkeyPatch,
