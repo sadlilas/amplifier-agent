@@ -57,8 +57,18 @@ def merge_config(
     The non-``None`` path raises :class:`NotImplementedError` until C2/C3/C4
     land the per-block merges.
     """
+    # Deep copy so callers cannot reach back into the bundle's declared
+    # config by mutating our return value, and so per-block overlays can
+    # mutate merged-block dicts in place safely.
+    merged = copy.deepcopy(bundle_modules)
     if host_config is None:
-        # Deep copy so callers cannot reach back into the bundle's
-        # declared config by mutating our return value.
-        return copy.deepcopy(bundle_modules)
-    raise NotImplementedError("per-block merges land in C2/C3/C4")
+        # D5 no-op path: no host tier, bundle defaults pass through.
+        return merged
+
+    # D4, D5: host.mcp -> tool-mcp module config (shallow per-key overlay).
+    mcp_overrides = host_config.get("mcp")
+    if isinstance(mcp_overrides, dict):
+        base = merged.get("tool-mcp", {})
+        merged["tool-mcp"] = {**base, **mcp_overrides}
+
+    return merged

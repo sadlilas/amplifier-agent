@@ -37,3 +37,38 @@ def test_merge_config_returns_bundle_unchanged_when_host_is_none() -> None:
     assert result == snapshot
     # Input was not mutated.
     assert bundle_modules == snapshot
+
+
+def test_merge_config_layers_mcp_block_over_tool_mcp_module() -> None:
+    """D4, D5: host.mcp keys override bundle's tool-mcp config per-key (shallow).
+
+    Bundle declares ``tool-mcp`` with three keys; host's ``mcp`` block overrides
+    one (``verbose_servers``), adds one new key (``configPath``), and omits the
+    remaining two (``server_log_dir``, ``max_content_size``) — for which the
+    bundle defaults must stand.
+    """
+    bundle_modules: dict[str, dict[str, object]] = {
+        "tool-mcp": {
+            "verbose_servers": False,
+            "server_log_dir": "/bundle/default",
+            "max_content_size": 50000,
+        },
+    }
+    host_config: dict[str, object] = {
+        "mcp": {
+            "verbose_servers": True,
+            "configPath": "/etc/host/mcp.json",
+        },
+    }
+    snapshot = copy.deepcopy(bundle_modules)
+
+    result = merge_config(bundle_modules=bundle_modules, host_config=host_config)
+
+    assert result["tool-mcp"] == {
+        "verbose_servers": True,
+        "server_log_dir": "/bundle/default",
+        "max_content_size": 50000,
+        "configPath": "/etc/host/mcp.json",
+    }
+    # Input was not mutated.
+    assert bundle_modules == snapshot
