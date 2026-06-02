@@ -8,10 +8,13 @@ Covers:
      ``providers`` are lists of ``{module, config, source}`` dicts), and
      writes the merged values back into the SAME list entries -- not into
      phantom top-level keys keyed by section name.
+  3. ``mcp.configPath`` in host config wires to ``AMPLIFIER_MCP_CONFIG``
+     (D4 engine-level convenience key), with CLI flag taking precedence.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
@@ -202,3 +205,40 @@ def test_provider_config_overrides_land_in_provider_entry() -> None:
     assert anthropic_entry["config"]["default_model"] == "claude-opus-4-6"
     # No phantom top-level key.
     assert "anthropic-provider" not in fake_prepared.mount_plan
+
+
+def test_mcp_config_path_in_host_sets_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D4: host_config.mcp.configPath → AMPLIFIER_MCP_CONFIG env var."""
+    monkeypatch.delenv("AMPLIFIER_MCP_CONFIG", raising=False)
+    fake_prepared = _FakePrepared()
+    host_config = {"mcp": {"configPath": "/tmp/test-mcp.json"}}
+
+    _runtime.make_turn_handler(
+        fake_prepared,  # type: ignore[arg-type]
+        cwd=None,
+        is_resumed=False,
+        host_config=host_config,
+    )
+
+    assert os.environ["AMPLIFIER_MCP_CONFIG"] == "/tmp/test-mcp.json"
+
+
+def test_cli_mcp_config_path_takes_precedence_over_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI --mcp-config-path wins over host_config.mcp.configPath."""
+    monkeypatch.delenv("AMPLIFIER_MCP_CONFIG", raising=False)
+    fake_prepared = _FakePrepared()
+    host_config = {"mcp": {"configPath": "/host/path.json"}}
+
+    _runtime.make_turn_handler(
+        fake_prepared,  # type: ignore[arg-type]
+        cwd=None,
+        is_resumed=False,
+        mcp_config_path="/cli/path.json",
+        host_config=host_config,
+    )
+
+    assert os.environ["AMPLIFIER_MCP_CONFIG"] == "/cli/path.json"

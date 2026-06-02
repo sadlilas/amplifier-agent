@@ -83,6 +83,17 @@ def make_turn_handler(
     if mcp_config_path:
         os.environ["AMPLIFIER_MCP_CONFIG"] = mcp_config_path
 
+    # D4: host_config.mcp.configPath → AMPLIFIER_MCP_CONFIG env var.
+    # configPath is an engine-level convenience key, not a tool-mcp config key.
+    # tool-mcp resolves it from its own AMPLIFIER_MCP_CONFIG priority chain.
+    # CLI flag --mcp-config-path takes precedence over host config (already
+    # handled by the block above; we only set if CLI did not).
+    mcp_host_block = (host_config or {}).get("mcp")
+    if isinstance(mcp_host_block, dict) and not mcp_config_path:
+        config_path_from_host = mcp_host_block.get("configPath")
+        if isinstance(config_path_from_host, str) and config_path_from_host:
+            os.environ["AMPLIFIER_MCP_CONFIG"] = config_path_from_host
+
     # D5: Overlay host-supplied config over the bundle's static module
     # configs at the bundle-mount seam.  ``merge_config`` expects
     # ``{module_id: config_dict}``, but ``mount_plan["tools"|"hooks"|
