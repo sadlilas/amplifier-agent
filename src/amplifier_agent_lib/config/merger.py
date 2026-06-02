@@ -29,6 +29,18 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+# D4: friendly provider names accepted in ``host.provider.module`` mapped to
+# the bundle module key whose config block receives the overlay.  The host
+# config uses the friendly name (e.g. ``"anthropic"``) so the YAML stays
+# concise; the merger translates to the module key (``"anthropic-provider"``)
+# used by the bundle module config dict.
+_PROVIDER_NAME_TO_MODULE_KEY = {
+    "anthropic": "anthropic-provider",
+    "openai": "openai-provider",
+    "azure-openai": "azure-openai-provider",
+    "ollama": "ollama-provider",
+}
+
 
 def merge_config(
     *,
@@ -79,5 +91,27 @@ def merge_config(
     if isinstance(approval_overrides, dict):
         base = merged.get("hooks-approval", {})
         merged["hooks-approval"] = {**base, **approval_overrides}
+
+    # D4, D5: host.provider.{module,config} -> the named provider module's
+    # config (shallow per-key overlay).  The host names the target provider
+    # module via the friendly ``module`` field (e.g. ``"anthropic"``); the
+    # merger translates that to the module key (``"anthropic-provider"``) and
+    # overlays ``config`` on top of the bundle's static block.  If ``module``
+    # is missing, unknown, or ``config`` is not a dict, we fall through
+    # defensively -- the validator (D7) is responsible for surfacing those
+    # cases to the user; the merger leaves the bundle config intact rather
+    # than guessing which provider to target.
+    provider_block = host_config.get("provider")
+    if isinstance(provider_block, dict):
+        provider_module = provider_block.get("module")
+        provider_config = provider_block.get("config")
+        if (
+            isinstance(provider_module, str)
+            and provider_module in _PROVIDER_NAME_TO_MODULE_KEY
+            and isinstance(provider_config, dict)
+        ):
+            module_key = _PROVIDER_NAME_TO_MODULE_KEY[provider_module]
+            base = merged.get(module_key, {})
+            merged[module_key] = {**base, **provider_config}
 
     return merged

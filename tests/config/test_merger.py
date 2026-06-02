@@ -107,3 +107,69 @@ def test_merge_config_layers_approval_block_over_hooks_approval_module() -> None
     }
     # Input was not mutated.
     assert bundle_modules == snapshot
+
+
+def test_merge_config_uses_provider_module_field_to_pick_target() -> None:
+    """D4, D5: host.provider.module names which provider module receives the config.
+
+    The merger maps the friendly ``provider.module`` name (e.g. ``"anthropic"``)
+    to the corresponding bundle module key (``"anthropic-provider"``) and
+    overlays ``provider.config`` per-key on top of the bundle's static config
+    for that module.
+    """
+    bundle_modules: dict[str, dict[str, object]] = {
+        "anthropic-provider": {
+            "default_model": "claude-sonnet-4-5",
+        },
+    }
+    host_config: dict[str, object] = {
+        "provider": {
+            "module": "anthropic",
+            "config": {
+                "default_model": "claude-opus-4-5",
+                "max_tokens": 16000,
+            },
+        },
+    }
+    snapshot = copy.deepcopy(bundle_modules)
+
+    result = merge_config(bundle_modules=bundle_modules, host_config=host_config)
+
+    assert result["anthropic-provider"] == {
+        "default_model": "claude-opus-4-5",
+        "max_tokens": 16000,
+    }
+    # Input was not mutated.
+    assert bundle_modules == snapshot
+
+
+def test_merge_config_provider_module_required_when_provider_block_present() -> None:
+    """D4, D5: missing ``provider.module`` falls through defensively.
+
+    Without a ``module`` field the merger cannot know which provider module the
+    config targets, so it leaves the bundle's provider config intact rather than
+    guessing. Schema-level enforcement of the ``module`` requirement happens in
+    the validator (D7); the merger's job is to be defensive.
+    """
+    bundle_modules: dict[str, dict[str, object]] = {
+        "anthropic-provider": {
+            "default_model": "claude-sonnet-4-5",
+        },
+    }
+    host_config: dict[str, object] = {
+        "provider": {
+            "config": {
+                "default_model": "claude-opus-4-5",
+            },
+        },
+    }
+    snapshot = copy.deepcopy(bundle_modules)
+
+    result = merge_config(bundle_modules=bundle_modules, host_config=host_config)
+
+    # Bundle config intact -- no module name means no merge target.
+    assert result["anthropic-provider"] == {
+        "default_model": "claude-sonnet-4-5",
+    }
+    # Input was not mutated.
+    assert bundle_modules == snapshot
