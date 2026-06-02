@@ -88,9 +88,6 @@ export async function spawnAgent(params) {
         ...(params.resume !== undefined ? { resume: params.resume } : {}),
         ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
         ...(params.mcpServers !== undefined ? { mcpServers: params.mcpServers } : {}),
-        ...(params.host?.capabilities !== undefined
-            ? { hostCapabilities: params.host.capabilities }
-            : {}),
         envAllowlist: allowlist,
         envExtra: extra,
         ...(params.providerOverride !== undefined

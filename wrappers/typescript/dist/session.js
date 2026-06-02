@@ -151,7 +151,6 @@ export class SessionHandle {
             cwd: this.params.cwd,
             providerOverride: this.params.providerOverride,
             mcpConfigPath: spill.configPath ?? undefined,
-            hostCapabilities: this.params.hostCapabilities,
             envAllowlist: this.params.envAllowlist,
             envExtra: this.params.envExtra,
             allowProtocolSkew: this.params.allowProtocolSkew,

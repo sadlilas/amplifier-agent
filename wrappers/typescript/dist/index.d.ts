@@ -14,8 +14,8 @@ export type { EngineVersionPayload } from "./spawn.js";
 import { SessionHandle } from "./session.js";
 import type { DisplayEvent } from "./session.js";
 import type { ApprovalResponse } from "./approval.js";
-import type { McpServerConfig, HostCapabilities } from "./types.js";
-export type { McpServerConfig, HostCapabilities } from "./types.js";
+import type { McpServerConfig } from "./types.js";
+export type { McpServerConfig } from "./types.js";
 /**
  * The protocol version that this TypeScript wrapper requires.
  * Forwarded to the engine via `--protocol-version` on every `submit()`.
@@ -52,10 +52,6 @@ export interface SpawnAgentParams {
     allowProtocolSkew?: boolean;
     /** Optional MCP servers to forward via `--mcp-servers` (A1). */
     mcpServers?: Record<string, McpServerConfig>;
-    /** Optional host envelope forwarded via `--host-capabilities` (A1). */
-    host?: {
-        capabilities?: HostCapabilities;
-    };
     /** Per-submit timeout in ms (default: 10 minutes). */
     timeoutMs?: number;
     /** Replaces the real resolveBinaryPath() call. */
