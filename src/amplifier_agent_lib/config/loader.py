@@ -29,6 +29,7 @@ from amplifier_agent_lib.protocol.errors import AaaError
 __all__ = ["ConfigError", "load_config"]
 
 _VALID_TOP_LEVEL_KEYS = frozenset({"mcp", "approval", "provider", "allowProtocolSkew"})
+_VALID_PROVIDER_MODULES = frozenset({"anthropic", "openai", "azure-openai", "ollama"})
 
 
 def _validate_approval_patterns(approval_block: Any, path: Path) -> None:
@@ -62,6 +63,31 @@ def _validate_approval_patterns(approval_block: Any, path: Path) -> None:
                 ),
                 classification="protocol",
             )
+
+
+def _validate_provider_module(provider_block: Any, path: Path) -> None:
+    """Enforce that ``provider.module`` (when present) is a supported provider.
+
+    A3 cross-module validation / D7 type guard.  The merger silently falls
+    through on invalid ``provider.module`` (defensive: preserve bundle
+    default).  The loader catches it loudly so the operator sees the error
+    at parse time rather than as a silent no-op much later.  When the
+    ``provider`` block is absent or the ``module`` key is omitted, the
+    bundle's ``default_provider`` applies (D6) and no error is raised.
+    """
+    if not isinstance(provider_block, dict):
+        # Absent or non-mapping provider block: bundle default applies (D6).
+        return
+    module = provider_block.get("module")
+    if module is None:
+        # Omitted module key: bundle's default_provider applies (D6).
+        return
+    if module not in _VALID_PROVIDER_MODULES:
+        raise ConfigError(
+            code="config_invalid_provider_module",
+            message=(f"provider.module at {path} must be one of {sorted(_VALID_PROVIDER_MODULES)}, got {module!r}."),
+            classification="protocol",
+        )
 
 
 class ConfigError(AaaError):
@@ -157,4 +183,5 @@ def load_config(config_arg: str | None) -> dict[str, Any] | None:
             classification="protocol",
         )
     _validate_approval_patterns(parsed.get("approval"), path)
+    _validate_provider_module(parsed.get("provider"), path)
     return parsed

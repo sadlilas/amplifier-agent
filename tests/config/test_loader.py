@@ -203,3 +203,48 @@ def test_load_config_accepts_string_patterns(
     )
     result = load_config(config_arg=str(cfg_path))
     assert result == {"approval": {"patterns": ["no", "rm -rf"]}}
+
+
+def test_load_config_rejects_unknown_provider_module(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A3/D7: an unknown provider.module value raises ConfigError at parse time.
+
+    The merger silently falls through on invalid provider.module (defensive,
+    preserving bundle default).  The loader catches it loudly so the operator
+    sees the error immediately rather than as a silent no-op much later.
+    The error message must enumerate all four valid module names so the
+    operator can correct the typo without consulting documentation.
+    """
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"provider": {"module": "auto"}}', encoding="utf-8")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(config_arg=str(cfg_path))
+    exc = exc_info.value
+    assert exc.code == "config_invalid_provider_module"
+    assert exc.classification == "protocol"
+    # Offending value surfaces in the message so the operator can find it.
+    assert "auto" in exc.message
+    # All four valid module names must be listed for operator guidance.
+    assert "anthropic" in exc.message
+    assert "openai" in exc.message
+    assert "azure-openai" in exc.message
+    assert "ollama" in exc.message
+
+
+def test_load_config_accepts_each_valid_provider_module(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A3/D7: each of the four supported provider.module values parses cleanly."""
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    for module_name in ("anthropic", "openai", "azure-openai", "ollama"):
+        cfg_path = tmp_path / f"config-{module_name}.json"
+        cfg_path.write_text(
+            f'{{"provider": {{"module": "{module_name}"}}}}',
+            encoding="utf-8",
+        )
+        result = load_config(config_arg=str(cfg_path))
+        assert result == {"provider": {"module": module_name}}
