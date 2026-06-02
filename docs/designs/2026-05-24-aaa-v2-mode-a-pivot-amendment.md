@@ -285,6 +285,11 @@ NC's `mcp-translator.ts` (locked design §4.3) is **unchanged** — it still sha
 
 ### 2.6 D12 — `host.capabilities` as additive `agent/initialize` field  <a id="d12"></a>
 
+> **SUPERSEDED by `docs/designs/2026-06-01-drop-host-capabilities.md` (2026-06-01).**
+> The `--host-capabilities` argv flag and the `HostCapabilities` surface have
+> been removed across engine, wrappers, schemas, fixtures, and tests. The
+> rationale below is preserved for historical context only.
+
 **Original locked position** (from 2026-05-22 §8 D12, quoted verbatim):
 
 > Additive `host?: { capabilities?: HostCapabilities }` field on `InitializeParams`. v1 capabilities:
