@@ -24,7 +24,7 @@ def test_output_defaults_to_json_envelope_shape() -> None:
             return_value=_mock_turn_result("hi"),
         ),
         patch(
-            "amplifier_agent_cli.provider_detect.detect_provider",
+            "amplifier_agent_cli.modes.single_turn._read_bundle_default_provider",
             return_value="anthropic",
         ),
     ):
@@ -52,7 +52,7 @@ def test_output_text_emits_reply_only() -> None:
             return_value=_mock_turn_result("plain text reply"),
         ),
         patch(
-            "amplifier_agent_cli.provider_detect.detect_provider",
+            "amplifier_agent_cli.modes.single_turn._read_bundle_default_provider",
             return_value="anthropic",
         ),
     ):
@@ -76,7 +76,7 @@ def test_mcp_servers_inline_json_parsed() -> None:
 
     with (
         patch("amplifier_agent_cli.modes.single_turn._execute_turn", side_effect=fake_execute),
-        patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"),
+        patch("amplifier_agent_cli.modes.single_turn._read_bundle_default_provider", return_value="anthropic"),
     ):
         result = runner.invoke(
             run,
@@ -109,7 +109,7 @@ def test_mcp_servers_at_path_form(tmp_path) -> None:
 
     with (
         patch("amplifier_agent_cli.modes.single_turn._execute_turn", side_effect=fake_execute),
-        patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"),
+        patch("amplifier_agent_cli.modes.single_turn._read_bundle_default_provider", return_value="anthropic"),
     ):
         result = runner.invoke(run, ["--session-id", "sid-1", "--mcp-servers", f"@{cfg}", "hello"])
 
@@ -120,7 +120,7 @@ def test_mcp_servers_at_path_form(tmp_path) -> None:
 def test_mcp_servers_malformed_json_yields_argv_envelope() -> None:
     """Malformed JSON in --mcp-servers maps to AaaError(argv_json_malformed). O2'."""
     runner = CliRunner()
-    with patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"):
+    with patch("amplifier_agent_cli.modes.single_turn._read_bundle_default_provider", return_value="anthropic"):
         result = runner.invoke(
             run,
             [
@@ -141,7 +141,7 @@ def test_mcp_servers_malformed_json_yields_argv_envelope() -> None:
 def test_protocol_version_mismatch_yields_envelope() -> None:
     """--protocol-version 9.9.9 (mismatch, no skew flag) → error envelope, exit 2."""
     runner = CliRunner()
-    with patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"):
+    with patch("amplifier_agent_cli.modes.single_turn._read_bundle_default_provider", return_value="anthropic"):
         result = runner.invoke(
             run,
             ["--session-id", "sid-1", "--protocol-version", "9.9.9-NOT-REAL", "hello"],
@@ -169,7 +169,7 @@ def test_protocol_version_skew_suppressed_by_config(tmp_path) -> None:
             "amplifier_agent_cli.modes.single_turn._execute_turn",
             return_value=_mock_turn_result("ok"),
         ),
-        patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"),
+        patch("amplifier_agent_cli.modes.single_turn._read_bundle_default_provider", return_value="anthropic"),
     ):
         result = runner.invoke(
             run,
@@ -200,7 +200,7 @@ def test_engine_exception_yields_error_envelope_shape() -> None:
             "amplifier_agent_cli.modes.single_turn._execute_turn",
             side_effect=raise_engine_error,
         ),
-        patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"),
+        patch("amplifier_agent_cli.modes.single_turn._read_bundle_default_provider", return_value="anthropic"),
     ):
         result = runner.invoke(run, ["--session-id", "sid-1", "hello"])
 

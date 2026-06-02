@@ -13,9 +13,9 @@ This mirrors:
 * ``amplifier_app_openclaw.runner._inject_user_providers`` (the
   "don't clobber existing" mount injection),
 
-but the source of truth here is ``provider_detect.detect_provider()`` — the
-short provider name returned by the env-var precedence walk — not a
-hand-rolled ``settings.yaml`` config. That keeps the CLI's documented
+but the source of truth here is the resolved provider short-name from
+config / bundle.md ``default_provider`` (D6, E5) — not a hand-rolled
+``settings.yaml`` config. That keeps the CLI's documented
 "set env var, run agent" UX (see CHEATSHEET §2) intact: zero settings
 files, the user sets ``ANTHROPIC_API_KEY`` (or one of the supported peers)
 and the matching provider module is mounted.
@@ -59,7 +59,14 @@ def _emit_legacy_env_var_notice(legacy_var: str, preferred_var: str) -> None:
     )
 
 
-#: Map provider short-name (matches ``provider_detect.KNOWN_PROVIDERS``) →
+#: Canonical list of provider short-names this CLI knows how to mount.
+#: Used by callers that need to validate a resolved provider name (e.g.
+#: --provider override) against the supported set. Kept in sync with
+#: ``PROVIDER_CATALOG.keys()``.
+KNOWN_PROVIDERS: Final[tuple[str, ...]] = ("anthropic", "openai", "azure-openai", "ollama")
+
+
+#: Map provider short-name (matches ``KNOWN_PROVIDERS``) →
 #: the catalog row used to construct a ``mount_plan["providers"]`` entry.
 #:
 #: Default models mirror app-cli's published settings template where known

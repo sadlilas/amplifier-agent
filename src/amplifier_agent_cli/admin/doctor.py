@@ -24,8 +24,8 @@ from pathlib import Path
 import click
 import yaml as _yaml
 
-from amplifier_agent_cli.provider_detect import ProviderNotConfigured, detect_provider
 from amplifier_agent_lib import __version__, persistence
+from amplifier_agent_lib.bundle import BUNDLE_MD
 from amplifier_agent_lib.bundle.cache import cache_dir_for_version
 
 _OK: str = "[ OK ]"
@@ -60,12 +60,21 @@ def check_cache_state(aaa_version: str) -> CacheState:
 
 
 def _check_provider() -> tuple[bool, str]:
-    """Return (True, OK line) if a provider is configured, (False, FAIL line) otherwise."""
+    """Return (True, OK line) if bundle.md declares a string ``default_provider``,
+    (False, FAIL line) otherwise.
+
+    D6: provider selection comes from config / bundle.md. The doctor's job is
+    to verify the bundle integrity invariant — that the vendored manifest
+    actually declares a default — not to autodetect from env vars.
+    """
     try:
-        name = detect_provider(override=None)
-        return (True, f"{_OK} provider: {name}")
-    except ProviderNotConfigured as exc:
-        return (False, f"{_FAIL} provider: {exc.message}")
+        manifest = _yaml.safe_load(BUNDLE_MD.read_text(encoding="utf-8").split("---\n")[1])
+    except Exception as exc:
+        return (False, f"{_FAIL} bundle default_provider: parse failed ({exc.__class__.__name__})")
+    default = manifest.get("default_provider") if isinstance(manifest, dict) else None
+    if isinstance(default, str):
+        return (True, f"{_OK} bundle default_provider: {default}")
+    return (False, f"{_FAIL} bundle default_provider: missing in bundle.md (D6)")
 
 
 def _check_writable(label: str, path: Path) -> tuple[bool, str]:

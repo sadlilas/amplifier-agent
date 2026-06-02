@@ -15,14 +15,9 @@ from pathlib import Path
 from typing import Any
 
 import click
+import yaml
 
-from amplifier_agent_cli.provider_detect import (
-    _DETECTION_ORDER as _PROVIDER_ENV_ORDER,
-)
-from amplifier_agent_cli.provider_detect import (
-    ProviderNotConfigured,
-    detect_provider,
-)
+from amplifier_agent_lib.bundle import BUNDLE_MD
 
 
 def _annotate_env_or_default(env_var: str, default: Path) -> dict[str, Any]:
@@ -39,26 +34,21 @@ def _annotate_env_or_default(env_var: str, default: Path) -> dict[str, Any]:
 
 
 def _resolve_provider() -> dict[str, Any]:
-    """Determine the active provider and where that decision came from.
+    """Determine the active provider from the vendored bundle.md default (D6).
 
-    Walk the detection order; if any env var is set, return its value + source.
-    If none are set, attempt detect_provider(override=None) for a 'default'
-    result (covers any future file-based config).  On ProviderNotConfigured,
-    return value=None, source='unset'.
+    Reads ``default_provider:`` from ``bundle.md``'s YAML frontmatter. Returns
+    ``source='bundle.default_provider'`` when present, ``source='unset'`` when
+    the field is missing/non-string, and ``source='error'`` if the manifest
+    cannot be parsed.
     """
-    for provider_name, env_vars in _PROVIDER_ENV_ORDER:
-        # env_vars[0] is the preferred name; remaining entries are deprecated
-        # aliases. Source annotation reports the actual env var that supplied
-        # the credential so operators can spot uses of the legacy spelling.
-        for env_var in env_vars:
-            if os.environ.get(env_var):
-                return {"value": provider_name, "source": f"env:{env_var}"}
-
     try:
-        name = detect_provider(override=None)
-        return {"value": name, "source": "default"}
-    except ProviderNotConfigured:
-        return {"value": None, "source": "unset"}
+        manifest = yaml.safe_load(BUNDLE_MD.read_text(encoding="utf-8").split("---\n")[1])
+    except Exception:
+        return {"value": None, "source": "error"}
+    default = manifest.get("default_provider") if isinstance(manifest, dict) else None
+    if isinstance(default, str):
+        return {"value": default, "source": "bundle.default_provider"}
+    return {"value": None, "source": "unset"}
 
 
 @click.group()

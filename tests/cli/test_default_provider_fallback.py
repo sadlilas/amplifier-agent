@@ -2,8 +2,8 @@
 
 When no `--provider` override is passed and no `host.provider.module` is set in
 the loaded host config, the CLI must fall back to the bundle's
-`default_provider:` top-level field (rather than env-var-based
-`detect_provider()` autodetection).
+`default_provider:` top-level field (rather than env-var-based provider
+autodetection — removed in E5).
 """
 
 from __future__ import annotations
@@ -16,8 +16,9 @@ from click.testing import CliRunner
 
 from amplifier_agent_cli.__main__ import cli
 
-# All env vars that the legacy detect_provider() walks. Strip them all so the
-# test cannot accidentally pass via env-var autodetection.
+# All env vars that the legacy provider-detection (removed in E5) used to
+# walk. Strip them all so the test cannot accidentally pass via env-var
+# autodetection (which no longer exists in the CLI).
 _PROVIDER_ENV_VARS = (
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
@@ -40,7 +41,9 @@ def test_run_uses_bundle_default_provider_when_no_override(
 
     The vendored bundle.md ships with `default_provider: anthropic` (D6).
     """
-    # Strip every provider env var so detect_provider would raise if called.
+    # Strip every provider env var so any residual env-var-based fallback
+    # would fail loudly. With E5 the CLI no longer reads these env vars
+    # to pick a provider; only bundle.md default_provider remains.
     for var in _PROVIDER_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
 

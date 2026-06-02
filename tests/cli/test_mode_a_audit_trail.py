@@ -32,7 +32,10 @@ def test_audit_file_written_with_digests(tmp_path, monkeypatch) -> None:
             "amplifier_agent_cli.modes.single_turn._execute_turn",
             return_value={"sessionId": "sid-X", "turnId": "turn-1", "reply": "ok"},
         ),
-        patch("amplifier_agent_cli.provider_detect.detect_provider", return_value="anthropic"),
+        patch(
+            "amplifier_agent_cli.modes.single_turn._read_bundle_default_provider",
+            return_value="anthropic",
+        ),
     ):
         result = runner.invoke(
             run,

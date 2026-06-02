@@ -2,10 +2,10 @@
 
 Verifies that `amplifier-agent config show`:
   - Outputs valid JSON.
-  - Reports provider with value and source='env:<VAR>' when provider env vars are set.
+  - Reports provider with value=<bundle default> and source='bundle.default_provider'
+    when bundle.md declares a default_provider (D6 / E5).
   - Reports XDG_CONFIG_HOME with source='env:XDG_CONFIG_HOME' when set.
   - Reports xdg_config_home with source='default' when XDG_CONFIG_HOME is absent.
-  - Returns provider.value=None and source='unset' when no provider env vars are set.
 """
 
 from __future__ import annotations
@@ -41,14 +41,20 @@ def test_config_show_outputs_valid_json(runner: CliRunner, tmp_path: Path) -> No
     assert isinstance(parsed, dict)
 
 
-def test_config_show_reports_provider_from_env(runner: CliRunner, tmp_path: Path) -> None:
-    """When ANTHROPIC_API_KEY is set and others are absent, provider reflects anthropic from env."""
+def test_config_show_reports_provider_from_bundle_default(runner: CliRunner, tmp_path: Path) -> None:
+    """provider.value/source reflect bundle.md's `default_provider:` field (D6 / E5).
+
+    Env vars no longer influence the reported provider — the vendored bundle.md
+    is the single source of truth. The vendored manifest ships
+    `default_provider: anthropic`.
+    """
     env = {
+        # Set provider env vars to verify they do NOT influence the reported
+        # source (E5: env-var-based detection was removed).
         "ANTHROPIC_API_KEY": "sk-test",
-        # Explicitly unset the other provider keys so detection order is clean.
         "OPENAI_API_KEY": "",
         "AZURE_OPENAI_API_KEY": "",
-        "AZURE_OPENAI_KEY": "",  # legacy alias
+        "AZURE_OPENAI_KEY": "",
         "OLLAMA_HOST": "",
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_CACHE_HOME": str(tmp_path / "cache"),
@@ -58,7 +64,7 @@ def test_config_show_reports_provider_from_env(runner: CliRunner, tmp_path: Path
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
     assert parsed["provider"]["value"] == "anthropic"
-    assert parsed["provider"]["source"] == "env:ANTHROPIC_API_KEY"
+    assert parsed["provider"]["source"] == "bundle.default_provider"
 
 
 def test_config_show_reports_xdg_config_home_from_env(runner: CliRunner, tmp_path: Path) -> None:
@@ -90,8 +96,13 @@ def test_config_show_reports_default_when_env_absent(runner: CliRunner, tmp_path
     assert parsed["xdg_config_home"]["source"] == "default"
 
 
-def test_config_show_handles_no_provider_configured(runner: CliRunner, tmp_path: Path) -> None:
-    """When no provider env vars are set, exit 0, provider.value is None, source=='unset'."""
+def test_config_show_reports_bundle_default_even_with_no_env_vars(runner: CliRunner, tmp_path: Path) -> None:
+    """Provider resolution is decoupled from env vars (E5/D6).
+
+    When no provider env vars are set, ``config show`` still reports the
+    bundle's ``default_provider`` because env-var-based detection no longer
+    influences this command. Exit 0 throughout.
+    """
     env = {
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
         "XDG_CACHE_HOME": str(tmp_path / "cache"),
@@ -105,5 +116,6 @@ def test_config_show_handles_no_provider_configured(runner: CliRunner, tmp_path:
     result = runner.invoke(cli, ["config", "show"], env=env)
     assert result.exit_code == 0, result.output
     parsed = json.loads(result.output)
-    assert parsed["provider"]["value"] is None
-    assert parsed["provider"]["source"] == "unset"
+    # bundle.md ships `default_provider: anthropic`.
+    assert parsed["provider"]["value"] == "anthropic"
+    assert parsed["provider"]["source"] == "bundle.default_provider"

@@ -20,7 +20,6 @@ from typing import Any
 
 import click
 
-from amplifier_agent_cli.provider_detect import detect_provider  # noqa: F401 — kept until E5 removes the symbol
 from amplifier_agent_cli.tty_detect import is_stdin_tty
 from amplifier_agent_lib import __version__
 from amplifier_agent_lib._runtime import make_turn_handler
@@ -521,7 +520,7 @@ def run(
 
     # (4) Provider resolution (D6). Priority:
     #     --provider override > host.provider.module > bundle default_provider.
-    # detect_provider() is no longer called on the happy path; bundle.md is the
+    # Env-var-based provider detection (removed in E5) is no longer called; bundle.md is the
     # source of truth for the default provider when nothing else is configured.
     if provider_override is not None:
         provider_name = provider_override
