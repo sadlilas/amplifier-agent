@@ -31,6 +31,39 @@ __all__ = ["ConfigError", "load_config"]
 _VALID_TOP_LEVEL_KEYS = frozenset({"mcp", "approval", "provider", "allowProtocolSkew"})
 
 
+def _validate_approval_patterns(approval_block: Any, path: Path) -> None:
+    """Enforce that ``approval.patterns`` (when present) is a list of strings.
+
+    D7 type guard.  JSON parses literal types unambiguously, so the YAML
+    Norway problem does not apply here; this guard exists so a host that
+    passes a non-string item gets a clear configuration error rather than
+    an opaque downstream surprise in hooks-approval pattern matching.
+    """
+    if not isinstance(approval_block, dict):
+        # Absent or non-mapping approval block: bundle default applies (D5).
+        return
+    patterns = approval_block.get("patterns")
+    if patterns is None:
+        return
+    if not isinstance(patterns, list):
+        raise ConfigError(
+            code="config_invalid_type",
+            message=(f"approval.patterns at {path} must be a JSON array of strings, got {type(patterns).__name__}."),
+            classification="protocol",
+        )
+    for i, item in enumerate(patterns):
+        if not isinstance(item, str):
+            raise ConfigError(
+                code="config_invalid_type",
+                message=(
+                    f"approval.patterns[{i}] at {path} must be a string, "
+                    f"got {type(item).__name__} ({item!r}). "
+                    f"Each member of approval.patterns must be a JSON string literal."
+                ),
+                classification="protocol",
+            )
+
+
 class ConfigError(AaaError):
     """Recoverable configuration error raised by loader/merger.
 
@@ -123,4 +156,5 @@ def load_config(config_arg: str | None) -> dict[str, Any] | None:
             ),
             classification="protocol",
         )
+    _validate_approval_patterns(parsed.get("approval"), path)
     return parsed

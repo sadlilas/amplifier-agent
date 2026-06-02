@@ -165,3 +165,41 @@ def test_load_config_accepts_all_four_known_keys(
     result = load_config(config_arg=str(cfg_path))
     assert result is not None
     assert set(result.keys()) == {"mcp", "approval", "provider", "allowProtocolSkew"}
+
+
+def test_load_config_rejects_non_string_approval_pattern(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D7 type guard: non-string items in approval.patterns raise ConfigError.
+
+    JSON parses literal types unambiguously, but a host could still pass a
+    number/bool/null inside the patterns array. The loader enforces the
+    string-only constraint so downstream hooks-approval matching receives
+    only strings.
+    """
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"approval": {"patterns": [123]}}', encoding="utf-8")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(config_arg=str(cfg_path))
+    exc = exc_info.value
+    assert exc.code == "config_invalid_type"
+    assert exc.classification == "protocol"
+    assert "approval.patterns" in exc.message
+    assert "string" in exc.message.lower()
+
+
+def test_load_config_accepts_string_patterns(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D7 type guard: well-typed string-only approval.patterns parses cleanly."""
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        '{"approval": {"patterns": ["no", "rm -rf"]}}',
+        encoding="utf-8",
+    )
+    result = load_config(config_arg=str(cfg_path))
+    assert result == {"approval": {"patterns": ["no", "rm -rf"]}}
