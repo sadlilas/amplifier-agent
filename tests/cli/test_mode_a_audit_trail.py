@@ -31,8 +31,6 @@ def test_audit_file_written_with_digests(tmp_path, monkeypatch) -> None:
                 "sid-X",
                 "--mcp-servers",
                 '{"s":{"transport":"stdio","command":"node","args":[],"env":{"K":"SECRET"}}}',
-                "--host-capabilities",
-                '{"supports_steering":false}',
                 "hello",
             ],
         )
@@ -45,7 +43,6 @@ def test_audit_file_written_with_digests(tmp_path, monkeypatch) -> None:
     assert "argvDigest" in audit
     assert "mcpServersDigest" in audit
     assert "envDigest" in audit
-    assert "hostCapabilities" in audit
     assert "protocolVersion" in audit
     assert "exitCode" in audit
     assert "correlationId" in audit
