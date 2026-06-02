@@ -72,3 +72,38 @@ def test_merge_config_layers_mcp_block_over_tool_mcp_module() -> None:
     }
     # Input was not mutated.
     assert bundle_modules == snapshot
+
+
+def test_merge_config_layers_approval_block_over_hooks_approval_module() -> None:
+    """D4, D5: host.approval keys override bundle's hooks-approval config per-key.
+
+    The shallow per-key overlay means list values (``patterns``) are replaced
+    wholesale by the host's list -- there is no array merge. Keys the host omits
+    (``default_action``, ``policy_driven_only``) keep the bundle defaults.
+    """
+    bundle_modules: dict[str, dict[str, object]] = {
+        "hooks-approval": {
+            "patterns": ["rm -rf"],
+            "auto_approve": False,
+            "default_action": "deny",
+            "policy_driven_only": False,
+        },
+    }
+    host_config: dict[str, object] = {
+        "approval": {
+            "auto_approve": True,
+            "patterns": ["sudo", "rm -rf /"],
+        },
+    }
+    snapshot = copy.deepcopy(bundle_modules)
+
+    result = merge_config(bundle_modules=bundle_modules, host_config=host_config)
+
+    assert result["hooks-approval"] == {
+        "patterns": ["sudo", "rm -rf /"],
+        "auto_approve": True,
+        "default_action": "deny",
+        "policy_driven_only": False,
+    }
+    # Input was not mutated.
+    assert bundle_modules == snapshot

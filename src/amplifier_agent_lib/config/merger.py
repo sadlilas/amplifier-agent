@@ -71,4 +71,13 @@ def merge_config(
         base = merged.get("tool-mcp", {})
         merged["tool-mcp"] = {**base, **mcp_overrides}
 
+    # D4, D5: host.approval -> hooks-approval module config (shallow per-key
+    # overlay). List values (e.g. ``patterns``) are replaced wholesale by the
+    # host's list -- there is no array merge, consistent with the per-key
+    # overlay stance of D5.
+    approval_overrides = host_config.get("approval")
+    if isinstance(approval_overrides, dict):
+        base = merged.get("hooks-approval", {})
+        merged["hooks-approval"] = {**base, **approval_overrides}
+
     return merged
