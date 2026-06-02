@@ -47,3 +47,27 @@ def test_load_config_reads_flag_path_with_json_load(
     cfg_path.write_text('{"mcp": {"verbose_servers": true}}', encoding="utf-8")
     result = load_config(config_arg=str(cfg_path))
     assert result == {"mcp": {"verbose_servers": True}}
+
+
+def test_load_config_reads_env_path_when_flag_absent(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1: env-tier ($AMPLIFIER_AGENT_CONFIG) is read when --config flag is absent."""
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"approval": {"auto_approve": false}}', encoding="utf-8")
+    monkeypatch.setenv("AMPLIFIER_AGENT_CONFIG", str(cfg_path))
+    assert load_config(config_arg=None) == {"approval": {"auto_approve": False}}
+
+
+def test_load_config_flag_wins_over_env(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1: --config flag tier wins over env tier when both are present."""
+    flag_path = tmp_path / "flag.json"
+    flag_path.write_text('{"mcp": {"verbose_servers": true}}', encoding="utf-8")
+    env_path = tmp_path / "env.json"
+    env_path.write_text('{"mcp": {"verbose_servers": false}}', encoding="utf-8")
+    monkeypatch.setenv("AMPLIFIER_AGENT_CONFIG", str(env_path))
+    assert load_config(config_arg=str(flag_path)) == {"mcp": {"verbose_servers": True}}
