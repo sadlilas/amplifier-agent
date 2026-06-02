@@ -18,10 +18,11 @@ returned by :func:`amplifier_agent_lib.config.load_config` when neither
 ``--config`` nor ``$AMPLIFIER_AGENT_CONFIG`` is present), the merge is a
 no-op and the bundle module configs pass through unchanged.
 
-This module is the **C1 stub**: it implements only the
-``host_config is None`` path.  The per-block merges for ``mcp``,
-``approval``, ``provider``, and ``allowProtocolSkew`` land in C2/C3/C4 and
-will replace the ``NotImplementedError`` below.
+``allowProtocolSkew`` is the one top-level host key that is **not** a module
+pass-through -- it's engine-level and controls whether the engine boot path
+enforces protocol version compatibility.  The merger surfaces it as a
+separate return field so :mod:`amplifier_agent_lib._runtime.engine.boot` can
+read the flag without re-parsing the host config dict (D4).
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ def merge_config(
     *,
     bundle_modules: dict[str, dict[str, Any]],
     host_config: dict[str, Any] | None,
-) -> dict[str, dict[str, Any]]:
+) -> tuple[dict[str, dict[str, Any]], bool]:
     """Overlay host config over bundle module configs (D5, shallow per-key).
 
     Arguments are keyword-only so call sites at the bundle-mount seam stay
@@ -61,13 +62,15 @@ def merge_config(
         :func:`amplifier_agent_lib.config.load_config`, or ``None`` when
         neither config tier (``--config`` flag, ``$AMPLIFIER_AGENT_CONFIG``
         env var) was provided.  When ``None``, the bundle module configs
-        are returned unchanged (D5 no-op path).
-    :returns: A new dict of module configs with host overrides applied
-        per-block per-key.  Callers receive a deep copy \u2014 mutating the
-        result will not affect ``bundle_modules``.
-
-    The non-``None`` path raises :class:`NotImplementedError` until C2/C3/C4
-    land the per-block merges.
+        are returned unchanged (D5 no-op path) and ``allowProtocolSkew``
+        defaults to ``False``.
+    :returns: A tuple ``(merged_modules, allow_protocol_skew)``.
+        ``merged_modules`` is a new dict of module configs with host
+        overrides applied per-block per-key; callers receive a deep copy
+        so mutating the result will not affect ``bundle_modules``.
+        ``allow_protocol_skew`` is the engine-level flag surfaced from the
+        host's top-level ``allowProtocolSkew`` key (D4); it defaults to
+        ``False`` when the host omits the key or supplies no host config.
     """
     # Deep copy so callers cannot reach back into the bundle's declared
     # config by mutating our return value, and so per-block overlays can
@@ -75,7 +78,8 @@ def merge_config(
     merged = copy.deepcopy(bundle_modules)
     if host_config is None:
         # D5 no-op path: no host tier, bundle defaults pass through.
-        return merged
+        # D4: allowProtocolSkew defaults to False (opt-in engine flag).
+        return merged, False
 
     # D4, D5: host.mcp -> tool-mcp module config (shallow per-key overlay).
     mcp_overrides = host_config.get("mcp")
@@ -114,4 +118,10 @@ def merge_config(
             base = merged.get(module_key, {})
             merged[module_key] = {**base, **provider_config}
 
-    return merged
+    # D4: ``allowProtocolSkew`` is engine-level, not a module pass-through.
+    # Surface it as a separate return field so the engine boot path can read
+    # it without re-parsing host_config. Defaults to False when absent or
+    # falsy; the bool() guard normalises non-bool truthy/falsy values from
+    # the parsed YAML (the validator (D7) enforces the type contract upstream).
+    allow_skew = bool(host_config.get("allowProtocolSkew", False))
+    return merged, allow_skew

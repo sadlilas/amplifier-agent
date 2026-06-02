@@ -31,7 +31,7 @@ def test_merge_config_returns_bundle_unchanged_when_host_is_none() -> None:
     }
     snapshot = copy.deepcopy(bundle_modules)
 
-    result = merge_config(bundle_modules=bundle_modules, host_config=None)
+    result, _allow_skew = merge_config(bundle_modules=bundle_modules, host_config=None)
 
     # Result equals the input snapshot (semantically unchanged).
     assert result == snapshot
@@ -62,7 +62,7 @@ def test_merge_config_layers_mcp_block_over_tool_mcp_module() -> None:
     }
     snapshot = copy.deepcopy(bundle_modules)
 
-    result = merge_config(bundle_modules=bundle_modules, host_config=host_config)
+    result, _allow_skew = merge_config(bundle_modules=bundle_modules, host_config=host_config)
 
     assert result["tool-mcp"] == {
         "verbose_servers": True,
@@ -97,7 +97,7 @@ def test_merge_config_layers_approval_block_over_hooks_approval_module() -> None
     }
     snapshot = copy.deepcopy(bundle_modules)
 
-    result = merge_config(bundle_modules=bundle_modules, host_config=host_config)
+    result, _allow_skew = merge_config(bundle_modules=bundle_modules, host_config=host_config)
 
     assert result["hooks-approval"] == {
         "patterns": ["sudo", "rm -rf /"],
@@ -133,7 +133,7 @@ def test_merge_config_uses_provider_module_field_to_pick_target() -> None:
     }
     snapshot = copy.deepcopy(bundle_modules)
 
-    result = merge_config(bundle_modules=bundle_modules, host_config=host_config)
+    result, _allow_skew = merge_config(bundle_modules=bundle_modules, host_config=host_config)
 
     assert result["anthropic-provider"] == {
         "default_model": "claude-opus-4-5",
@@ -165,7 +165,7 @@ def test_merge_config_provider_module_required_when_provider_block_present() -> 
     }
     snapshot = copy.deepcopy(bundle_modules)
 
-    result = merge_config(bundle_modules=bundle_modules, host_config=host_config)
+    result, _allow_skew = merge_config(bundle_modules=bundle_modules, host_config=host_config)
 
     # Bundle config intact -- no module name means no merge target.
     assert result["anthropic-provider"] == {
@@ -173,3 +173,31 @@ def test_merge_config_provider_module_required_when_provider_block_present() -> 
     }
     # Input was not mutated.
     assert bundle_modules == snapshot
+
+
+def test_merge_config_returns_allow_protocol_skew_flag() -> None:
+    """D4: allowProtocolSkew is engine-level, surfaced as a separate return field.
+
+    The merger returns ``(merged_modules, allow_protocol_skew)`` so the engine
+    boot path can read the flag without re-parsing the host config dict.
+    """
+    _modules, allow_skew = merge_config(
+        bundle_modules={},
+        host_config={"allowProtocolSkew": True},
+    )
+
+    assert allow_skew is True
+
+
+def test_merge_config_skew_defaults_to_false() -> None:
+    """D4: allowProtocolSkew defaults to False when the host omits it.
+
+    The engine-level skew flag is opt-in; absence of the key in the host
+    config means the engine enforces protocol version compatibility.
+    """
+    _modules, allow_skew = merge_config(
+        bundle_modules={},
+        host_config={},
+    )
+
+    assert allow_skew is False
