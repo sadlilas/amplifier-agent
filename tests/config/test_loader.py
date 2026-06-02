@@ -71,3 +71,19 @@ def test_load_config_flag_wins_over_env(
     env_path.write_text('{"mcp": {"verbose_servers": false}}', encoding="utf-8")
     monkeypatch.setenv("AMPLIFIER_AGENT_CONFIG", str(env_path))
     assert load_config(config_arg=str(flag_path)) == {"mcp": {"verbose_servers": True}}
+
+
+def test_load_config_raises_on_malformed_json(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D7: malformed JSON raises ConfigError(code='config_malformed_json')."""
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"mcp": {"verbose_servers": true,', encoding="utf-8")
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(config_arg=str(cfg_path))
+    exc = exc_info.value
+    assert exc.code == "config_malformed_json"
+    assert exc.classification == "protocol"
+    assert str(cfg_path) in exc.message

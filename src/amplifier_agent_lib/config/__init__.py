@@ -14,34 +14,15 @@ All recoverable failures surfaced by this package are raised as
 ``_build_error_envelope`` path catches it and emits a §4.1 error envelope
 with ``classification='protocol'`` (exit code 2 per
 ``_EXIT_CODE_BY_CLASSIFICATION``).
+
+``ConfigError`` is defined in ``loader.py`` (rather than this module) so
+that ``loader.py`` can raise it without a circular import; we re-export
+it here so callers continue to use ``from amplifier_agent_lib.config
+import ConfigError``.
 """
 
 from __future__ import annotations
 
-from amplifier_agent_lib.config.loader import load_config
-from amplifier_agent_lib.protocol.errors import AaaError
+from amplifier_agent_lib.config.loader import ConfigError, load_config
 
 __all__ = ["ConfigError", "load_config"]
-
-
-class ConfigError(AaaError):
-    """Recoverable configuration error raised by loader/merger.
-
-    Subclasses :class:`AaaError` so the CLI's existing error-envelope
-    machinery catches it and emits a §4.1 envelope.  Defaults
-    ``classification`` to ``"protocol"`` so the wrapper exits with the
-    protocol exit code (2) unless the caller explicitly overrides it.
-    """
-
-    def __init__(
-        self,
-        *,
-        code: str,
-        message: str,
-        classification: str | None = "protocol",
-    ) -> None:
-        super().__init__(
-            code=code,
-            message=message,
-            classification=classification,
-        )
