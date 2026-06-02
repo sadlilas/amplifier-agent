@@ -78,7 +78,6 @@ def test_audit_dict_excludes_host_capabilities(tmp_path, monkeypatch) -> None:
         ended_at="2026-06-01T00:00:01+00:00",
         argv=["amplifier-agent", "run", "hello"],
         mcp_config_path=None,
-        env_extra=None,
         protocol_version="2026-05-01",
     )
 
