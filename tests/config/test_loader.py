@@ -35,3 +35,15 @@ def test_load_config_returns_none_when_no_tier(
     """D1: returns None when neither --config arg nor env var is present."""
     monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
     assert load_config(config_arg=None) is None
+
+
+def test_load_config_reads_flag_path_with_json_load(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1/D3: --config flag tier reads file via json.load and returns parsed dict."""
+    monkeypatch.delenv("AMPLIFIER_AGENT_CONFIG", raising=False)
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text('{"mcp": {"verbose_servers": true}}', encoding="utf-8")
+    result = load_config(config_arg=str(cfg_path))
+    assert result == {"mcp": {"verbose_servers": True}}
