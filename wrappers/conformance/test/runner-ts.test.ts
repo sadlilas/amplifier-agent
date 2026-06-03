@@ -29,9 +29,9 @@ describe("conformance runner (typescript)", () => {
     expect(report.passed).toBe(true);
   });
 
-  it("initialize_with_mcpservers passes", async () => {
+  it("initialize_with_mcp_config_path passes", async () => {
     const report = await runFixture(
-      `${FIXTURES_DIR}/initialize-with-mcpservers.yaml`,
+      `${FIXTURES_DIR}/initialize-with-mcp-config-path.yaml`,
     );
     expect(report.passed).toBe(true);
   });
@@ -46,6 +46,20 @@ describe("conformance runner (typescript)", () => {
   it("resume_with_session_store passes", async () => {
     const report = await runFixture(
       `${FIXTURES_DIR}/resume-with-session-store.yaml`,
+    );
+    expect(report.passed).toBe(true);
+  });
+
+  it("initialize_baseline passes", async () => {
+    const report = await runFixture(
+      `${FIXTURES_DIR}/initialize-baseline.yaml`,
+    );
+    expect(report.passed).toBe(true);
+  });
+
+  it("initialize_with_protocol_skew_override passes", async () => {
+    const report = await runFixture(
+      `${FIXTURES_DIR}/initialize-with-protocol-skew-override.yaml`,
     );
     expect(report.passed).toBe(true);
   });
