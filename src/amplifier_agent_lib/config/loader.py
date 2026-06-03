@@ -28,8 +28,13 @@ from amplifier_agent_lib.protocol.errors import AaaError
 
 __all__ = ["ConfigError", "load_config"]
 
-_VALID_TOP_LEVEL_KEYS = frozenset({"mcp", "approval", "provider", "allowProtocolSkew"})
+_VALID_TOP_LEVEL_KEYS = frozenset({"mcp", "approval", "provider", "allowProtocolSkew", "skills"})
 _VALID_PROVIDER_MODULES = frozenset({"anthropic", "openai", "azure-openai", "ollama"})
+# D11 closes the ``skills.*`` inner shape against this set.  Per D11 this is a
+# closed inner shape (config_invalid_type), distinct from the closed top-level
+# schema (D7, config_unknown_key).  D7 pass-through applies one level deeper,
+# inside ``skills.visibility`` — see _validate_skills_block for that boundary.
+_ALLOWED_SKILLS_SUBKEYS = frozenset({"skills", "visibility"})
 
 
 def _validate_approval_patterns(approval_block: Any, path: Path) -> None:
@@ -60,6 +65,74 @@ def _validate_approval_patterns(approval_block: Any, path: Path) -> None:
                     f"approval.patterns[{i}] at {path} must be a string, "
                     f"got {type(item).__name__} ({item!r}). "
                     f"Each member of approval.patterns must be a JSON string literal."
+                ),
+                classification="protocol",
+            )
+
+
+def _validate_skills_block(skills_block: Any, path: Path) -> None:
+    """Enforce that ``skills.skills`` (when present) is a list of strings.
+
+    D11 + D7 type guard.  The ``skills.skills`` key is a list of source URIs
+    (git URIs, workspace-relative paths, or user-home paths) that the
+    downstream skills loader resolves into mounted skill bundles.  Catching
+    a non-list or non-string-member value here gives the operator a clear
+    parse-time error rather than an opaque failure deep in the skills
+    loader.  Mirrors :func:`_validate_approval_patterns` exactly: when the
+    block is absent, non-mapping, or omits the ``skills`` key, the bundle
+    default applies (D5) and no error is raised.
+    """
+    if not isinstance(skills_block, dict):
+        # Absent or non-mapping skills block: bundle default applies (D5).
+        return
+    # D11: close the ``skills.*`` inner shape against {skills, visibility}.
+    # This is config_invalid_type (closed inner shape) — NOT config_unknown_key,
+    # which D7 reserves for top-level keys.  D7 pass-through applies only one
+    # level deeper (inside ``skills.visibility``), so unknown sub-keys at the
+    # ``skills.*`` level must raise loudly at parse time rather than silently
+    # propagating to the skills module.
+    unknown = set(skills_block.keys()) - _ALLOWED_SKILLS_SUBKEYS
+    if unknown:
+        raise ConfigError(
+            code="config_invalid_type",
+            message=(
+                f"Unknown sub-keys under skills.*: {sorted(unknown)}. Allowed: {sorted(_ALLOWED_SKILLS_SUBKEYS)}."
+            ),
+            classification="protocol",
+        )
+    # D11 + D7 shape guard for the ``visibility`` sub-block.  When present,
+    # ``skills.visibility`` must be a JSON object (dict) so the downstream
+    # skills module receives a mapping it can interpret.  Per D11 the inner
+    # keys (``enabled``, ``inject_role``, ``max_skills_visible``, etc.) are
+    # pass-through and the module owns their validation — the loader does
+    # NOT iterate inner keys here.  This keeps loader responsibility narrow
+    # (shape only) and lets the skills module evolve its accepted keys
+    # independently of the loader's release cadence.
+    if "visibility" in skills_block:
+        visibility = skills_block["visibility"]
+        if not isinstance(visibility, dict):
+            raise ConfigError(
+                code="config_invalid_type",
+                message=(f"skills.visibility at {path} must be a dict (JSON object), got {type(visibility).__name__}."),
+                classification="protocol",
+            )
+    skills = skills_block.get("skills")
+    if skills is None:
+        return
+    if not isinstance(skills, list):
+        raise ConfigError(
+            code="config_invalid_type",
+            message=(f"skills.skills at {path} must be a JSON array (list) of strings, got {type(skills).__name__}."),
+            classification="protocol",
+        )
+    for i, item in enumerate(skills):
+        if not isinstance(item, str):
+            raise ConfigError(
+                code="config_invalid_type",
+                message=(
+                    f"skills.skills[{i}] at {path} must be a string, "
+                    f"got {type(item).__name__} ({item!r}). "
+                    f"Each member of skills.skills must be a JSON string literal (a source URI)."
                 ),
                 classification="protocol",
             )
@@ -184,4 +257,5 @@ def load_config(config_arg: str | None) -> dict[str, Any] | None:
         )
     _validate_approval_patterns(parsed.get("approval"), path)
     _validate_provider_module(parsed.get("provider"), path)
+    _validate_skills_block(parsed.get("skills"), path)
     return parsed
