@@ -146,6 +146,40 @@ export interface SessionHandleParams {
      * have not opted into the approval API.
      */
     approvalMode?: "yes" | "no" | "prompt";
+    /**
+     * Stderr display mode forwarded to the engine via `--display <mode>`.
+     *
+     * - `"ndjson"` — required for hosts that consume structured wire events
+     *   via the `display.onEvent` callback below. The engine emits one
+     *   JSON-RPC notification per line on stderr, matching the
+     *   `parseNdjsonStream` consumer this wrapper wires onto `child.stderr`.
+     *   This is the only way to receive enriched `usage` fields (cost,
+     *   model, provider, cache token counts, llm duration, etc.) the
+     *   streaming hook produces.
+     * - `"text"` — engine emits human-readable text via CliDisplaySystem.
+     *   The wrapper's NDJSON consumer cannot decode it, so `display.onEvent`
+     *   stays silent. Useful only for direct CLI use, not wrapper consumers.
+     * - omitted — wrapper emits no `--display` flag. Engine defaults to
+     *   `text`, preserving the historical pre-#45 behavior. Use this for
+     *   compatibility with older engines that don't accept `--display`.
+     *
+     * Requires engine support for the `--display` flag. Older engines
+     * (pre-#45-followup) fail with `click` "no such option" if this is set.
+     */
+    displayMode?: "text" | "ndjson";
+    /**
+     * Workspace name for isolating session state by project. Forwarded to the
+     * engine via `--workspace <name>`. When unset, the engine auto-derives a
+     * slug from the cwd basename + 8-char sha256 of the resolved cwd path.
+     *
+     * Hosts that manage multiple agents per process should set this so each
+     * agent's transcripts land in a separate directory under
+     * `~/.local/state/amplifier-agent/workspaces/<workspace>/sessions/<id>/`.
+     *
+     * Must satisfy `[a-z0-9][a-z0-9-]{0,63}`. The engine validates and rejects
+     * invalid slugs with `argv_workspace_invalid`.
+     */
+    workspace?: string;
     /** Protocol version the wrapper speaks (e.g. "0.3.0"). */
     protocolVersion: string;
     /**

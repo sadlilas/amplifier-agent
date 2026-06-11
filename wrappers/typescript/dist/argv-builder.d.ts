@@ -40,6 +40,47 @@ export interface AssembleArgvInput {
      * removed — the caller now owns this policy decision.
      */
     approvalMode?: "yes" | "no" | "prompt";
+    /**
+     * Stderr display mode forwarded to the engine via `--display <mode>`.
+     *
+     * - `"ndjson"` — engine emits one JSON-RPC notification per line on stderr,
+     *   matching the `parseNdjsonStream` consumer this wrapper already wires
+     *   onto `child.stderr`. Hosts that consume `display.onEvent` typed
+     *   notifications (cost, model, cache tokens, llm duration, etc.) MUST set
+     *   this; otherwise the engine emits human-readable `[type] summary` text
+     *   that `parseNdjsonStream` cannot decode and the notification path
+     *   stays silent.
+     * - `"text"` — engine emits human-readable text via CliDisplaySystem.
+     *   Useful only for direct CLI use; the wrapper's NDJSON consumer can't
+     *   decode it.
+     * - omitted — wrapper emits no `--display` flag; engine defaults to `text`.
+     *   Preserved as the historical default so existing callers who haven't
+     *   opted into structured consumption keep their old behavior.
+     *
+     * Requires engine support for the `--display` flag (added alongside
+     * JsonDisplaySystem). Older engines will fail with a click "no such option"
+     * error if this is set; coordinate the engine version with the wrapper
+     * version (link:/file:/published-pair) before opting in.
+     */
+    displayMode?: "text" | "ndjson";
+    /**
+     * Workspace name for isolating session state by project. Forwarded to the
+     * engine via `--workspace <name>`.
+     *
+     * When set, the engine writes session state to
+     * `~/.local/state/amplifier-agent/workspaces/<workspace>/sessions/<id>/`.
+     * When omitted, the engine auto-derives a slug from the cwd basename plus
+     * an 8-char sha256 of the resolved cwd path (e.g. `default-9e80f0e7`).
+     *
+     * Hosts that manage multiple agents per process (e.g. paperclip's
+     * amplifier-local adapter, which runs CEO + CTO + Coder + … per company)
+     * should set this so each agent's transcripts land in a separate
+     * directory. A typical scheme is `pc-<company-id-short>-<agent-id-short>`.
+     *
+     * Must satisfy the engine's slug grammar: `[a-z0-9][a-z0-9-]{0,63}`.
+     * The engine validates and rejects invalid slugs with `argv_workspace_invalid`.
+     */
+    workspace?: string;
 }
 /**
  * Build the argv array for `amplifier-agent run`.
