@@ -48,6 +48,28 @@ def _model_info(model_id: str, provider_id: str) -> dict[str, Any]:
     return m
 
 
+@pytest.fixture(autouse=True)
+def _isolated_credentials(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate env AND the real ``~/.amplifier-agent`` credentials store.
+
+    This suite asserts hard exit-2 behaviour for "no providers configured"
+    scenarios. Since serve now auto-enables from resolvable credentials
+    (Phase 1 spec section 3), those assertions are only valid when neither
+    provider env vars nor a real credentials.json on the host machine can
+    leak in and make a provider look resolvable.
+    """
+    for var in (
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_KEY",
+        "OLLAMA_HOST",
+        "OLLAMA_BASE_URL",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("AMPLIFIER_AGENT_HOME", str(tmp_path))
+
+
 @pytest.fixture()
 def base_mocks(tmp_path):
     """Patch every heavy-weight lifespan dependency except list_provider_models.

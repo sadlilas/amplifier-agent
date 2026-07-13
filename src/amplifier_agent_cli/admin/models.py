@@ -29,7 +29,6 @@ import importlib
 import importlib.metadata
 import json
 import logging
-import os
 import sys
 from datetime import UTC, datetime
 from typing import Any
@@ -38,7 +37,8 @@ import click
 
 from amplifier_agent_cli.provider_sources import (
     PROVIDER_CATALOG,
-    PROVIDER_CREDENTIAL_VARS,
+    ProviderCredentialsMissingError,
+    resolve_provider_credentials,
 )
 from amplifier_agent_cli.tty_detect import is_stdout_tty
 
@@ -47,12 +47,12 @@ logger = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
 
 
-class ProviderCredentialsMissingError(Exception):
-    """Raised when a provider's required credentials env var is unset/empty.
-
-    Mapped to exit code 2 by the CLI layer.  The message includes the env var
-    name so the user knows exactly what to set.
-    """
+# NOTE: ProviderCredentialsMissingError now lives in
+# ``amplifier_agent_cli.provider_sources`` (Phase 1 credential-resolution
+# convergence -- this module used to re-implement its own env-only resolver
+# and its own exception class). Re-imported above and re-exported here for
+# backwards compatibility with existing callers (e.g.
+# ``amplifier_agent_http.app`` imports it from this module).
 
 
 class ProviderModuleNotInstalledError(Exception):
@@ -164,64 +164,13 @@ def load_provider_class(provider_id: str) -> type | None:
         return None
 
 
-def _resolve_provider_credentials(provider_id: str) -> dict[str, str]:
-    """Resolve per-provider connection credentials from environment variables.
-
-    Mirrors :func:`amplifier_app_cli.provider_loader._resolve_env_placeholder`,
-    but bound to the static :data:`PROVIDER_CATALOG` env-var mapping rather
-    than a generic ``${VAR}`` placeholder.  The reference implementation in
-    ``amplifier_app_cli.provider_loader`` reads collected user config; this
-    port reads env vars directly so the CLI's documented "set env var, run"
-    UX (see CHEATSHEET) works without a settings file.
-
-    Args:
-        provider_id: Short-name from :data:`PROVIDER_CATALOG`
-            (e.g. ``"anthropic"``).  Unknown values return ``{}``.
-
-    Returns:
-        Dict with provider-specific connection fields.  For api-key-based
-        providers: ``{"api_key": "<env-value>"}``.  For ollama:
-        ``{"host": "<env-value-or-default>"}``.  Empty dict for unknown
-        providers (caller handles validation separately).
-
-    Raises:
-        ProviderCredentialsMissingError: If the provider requires an API key
-            (anthropic, openai, azure-openai) and neither the preferred env
-            var nor any registered legacy env var is set.
-    """
-    # Ollama is special: it's a host URL, not an api key, and an unreachable
-    # daemon is exit-0 + advisory rather than an error. Handle it explicitly.
-    if provider_id == "ollama":
-        # Either OLLAMA_HOST (catalog-preferred) or OLLAMA_BASE_URL.
-        host = os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434"
-        return {"host": host}
-
-    env_vars = PROVIDER_CREDENTIAL_VARS.get(provider_id)
-    if not env_vars:
-        # Unknown / future providers: return empty. The caller's PROVIDER_CATALOG
-        # guard validates the name; if we get here on a known-but-unmapped
-        # provider, the constructor-shape probing in _try_instantiate_provider
-        # will still try the no-arg / config-only signatures.
-        return {}
-
-    primary_var = env_vars[0]
-    value = os.environ.get(primary_var, "")
-    if not value:
-        for legacy_var in env_vars[1:]:
-            value = os.environ.get(legacy_var, "")
-            if value:
-                break
-
-    if not value:
-        legacy_clause = ""
-        if len(env_vars) > 1:
-            legacy_names = ", ".join(env_vars[1:])
-            legacy_clause = f" (legacy {legacy_names} also unset)"
-        raise ProviderCredentialsMissingError(
-            f"{primary_var} not set{legacy_clause}; cannot fetch live model list. "
-            "Set the env var or choose a different provider.",
-        )
-    return {"api_key": value}
+# NOTE: per-provider credential resolution now lives in
+# ``amplifier_agent_cli.provider_sources.resolve_provider_credentials`` /
+# ``resolve_credential_detailed`` -- the single canonical resolver shared
+# by ``run``, ``models list``, and HTTP ``serve`` startup (Phase 1
+# credential-resolution convergence). This module used to carry its own
+# env-only copy (deleted here), which is what caused ``models list`` to
+# resolve credentials differently than ``run``.
 
 
 def _try_instantiate_provider(
@@ -338,7 +287,7 @@ def list_provider_models(
     """
     # Resolve credentials BEFORE attempting any module load so the user gets
     # the cheaper, more actionable error first when the env var is missing.
-    credentials = _resolve_provider_credentials(provider_id)
+    credentials = resolve_provider_credentials(provider_id, required=True)
 
     # Load the module directly so we can distinguish ImportError (module not
     # installed) from "module loaded but no Provider class found".  The

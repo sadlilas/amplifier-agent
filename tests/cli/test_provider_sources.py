@@ -125,15 +125,20 @@ def test_build_provider_entry_for_openai(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_build_provider_entry_for_ollama_uses_host_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ollama uses OLLAMA_HOST (not an API key), but the field name stays 'api_key' for shape symmetry."""
+    """Ollama uses OLLAMA_HOST, surfaced under config['host'] (not 'api_key').
+
+    Verified against amplifier-module-provider-ollama's own config reader
+    (``config.get("host")``) -- see ``test_ollama_run_mount_uses_host`` in
+    ``test_credential_resolution.py`` for the dedicated regression test.
+    """
     monkeypatch.setenv("OLLAMA_HOST", "http://localhost:11434")
     from amplifier_agent_cli.provider_sources import build_provider_entry
 
     entry = build_provider_entry("ollama")
 
     assert entry["module"] == "provider-ollama"
-    # The catalog stores the env value under api_key for consistent provider-module shape.
-    assert entry["config"]["api_key"] == "http://localhost:11434"
+    assert entry["config"]["host"] == "http://localhost:11434"
+    assert "api_key" not in entry["config"]
 
 
 def test_build_provider_entry_unknown_provider_raises() -> None:
@@ -144,13 +149,21 @@ def test_build_provider_entry_unknown_provider_raises() -> None:
     assert "not-a-real-provider" in str(excinfo.value)
 
 
-def test_build_provider_entry_missing_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If the env var is unset, api_key resolves to empty string (caller validated provider name earlier via config / bundle default)."""
+def test_build_provider_entry_missing_env_var(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """If nothing resolves, ``config`` has no api_key key (caller validated provider name
+    earlier via config / bundle default; downstream ``_try_instantiate_provider`` defaults
+    missing keys to "" itself, so omission -- not an empty-string placeholder -- is the
+    contract; see CredentialResolution.fields == {} for the unresolved case)."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # Isolate the real credentials store too: without this, a developer's own
+    # ``~/.amplifier-agent/credentials.json`` (from prior `auth set` usage)
+    # leaks in via the env->file fallback and this assertion fails spuriously.
+    monkeypatch.setenv("AMPLIFIER_AGENT_HOME", str(tmp_path))
     from amplifier_agent_cli.provider_sources import build_provider_entry
 
     entry = build_provider_entry("anthropic")
-    assert entry["config"]["api_key"] == ""
+    assert "api_key" not in entry["config"]
+    assert entry["config"].get("api_key", "") == ""
 
 
 # ---------------------------------------------------------------------------

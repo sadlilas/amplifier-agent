@@ -43,7 +43,11 @@ from typing import Any
 
 import click
 
-from amplifier_agent_cli.provider_sources import KNOWN_PROVIDERS, PROVIDER_CREDENTIAL_VARS
+from amplifier_agent_cli.provider_sources import (
+    KNOWN_PROVIDERS,
+    CredentialResolution,
+    resolve_credential_detailed,
+)
 from amplifier_agent_lib.persistence import amplifier_agent_home
 
 logger = logging.getLogger(__name__)
@@ -213,6 +217,21 @@ def _file_perm_octal(path: Path) -> str:
     return f"{mode:03o}"
 
 
+def _display_value(resolution: CredentialResolution) -> str:
+    """Render a resolution's credential fields for display, masking secrets.
+
+    ``api_key`` fields are masked via :func:`_mask` (matches the existing
+    ``auth list`` convention). ``host`` fields (ollama) are not secrets and
+    are shown verbatim. Falls back to ``"<not set>"`` when neither is
+    present.
+    """
+    if "api_key" in resolution.fields:
+        return _mask(resolution.fields["api_key"])
+    if "host" in resolution.fields:
+        return resolution.fields["host"]
+    return "<not set>"
+
+
 # ---------------------------------------------------------------------------
 # Click surface
 # ---------------------------------------------------------------------------
@@ -282,18 +301,18 @@ def auth_set(provider: str, api_key: str, endpoint: str | None) -> None:
 def auth_list() -> None:
     """List configured providers (api keys masked).
 
-    Shows the credential source for each known provider:
+    Shows the credential source for each known provider, resolved via the
+    single canonical chain (:func:`amplifier_agent_cli.provider_sources.resolve_credential_detailed`):
 
       env=<VAR>     value comes from a shell environment variable
       file          value comes from credentials.json
+      default       ollama's built-in localhost default (not "configured")
       not set       no credential available
 
     Shell environment variables ALWAYS take precedence over file entries.
     """
     path = credentials_path()
     file_exists = path.exists()
-    data = _load_credentials() if file_exists else {"providers": {}}
-    providers_in_file: dict[str, Any] = data.get("providers") or {}
 
     click.echo(f"Credentials file: {path}")
     if not file_exists:
@@ -304,27 +323,17 @@ def auth_list() -> None:
 
     rows: list[tuple[str, str, str]] = []
     for provider in KNOWN_PROVIDERS:
-        env_vars = PROVIDER_CREDENTIAL_VARS.get(provider, ())
-        env_value = ""
-        env_source = ""
-        for env_var in env_vars:
-            v = os.environ.get(env_var, "")
-            if v:
-                env_value = v
-                env_source = f"env={env_var}"
-                break
-
-        file_value = ""
-        file_entry = providers_in_file.get(provider) or {}
-        if isinstance(file_entry, dict):
-            file_value = file_entry.get("api_key") or ""
-
-        if env_value:
-            rows.append((provider, _mask(env_value), env_source))
-        elif file_value:
-            rows.append((provider, _mask(file_value), "file"))
+        resolution = resolve_credential_detailed(provider)
+        value = _display_value(resolution)
+        if resolution.source == "env":
+            source_label = f"env={resolution.env_var}"
+        elif resolution.source == "file":
+            source_label = "file"
+        elif resolution.source == "default":
+            source_label = "default"
         else:
-            rows.append((provider, "<not set>", "—"))
+            source_label = "—"
+        rows.append((provider, value, source_label))
 
     width_provider = max(len(r[0]) for r in rows)
     width_value = max(len(r[1]) for r in rows)
@@ -355,14 +364,12 @@ def auth_remove(provider: str) -> None:
 def auth_status() -> None:
     """Diagnose the credential-resolution chain.
 
-    For each known provider, shows whether a shell environment variable
-    is set AND whether a file entry exists, so it's clear which value
-    wins.
+    For each known provider, shows the resolved source
+    (:func:`amplifier_agent_cli.provider_sources.resolve_credential_detailed`)
+    so it's clear which value wins.
     """
     path = credentials_path()
     file_exists = path.exists()
-    data = _load_credentials() if file_exists else {"providers": {}}
-    providers_in_file: dict[str, Any] = data.get("providers") or {}
 
     click.echo(f"Credentials file: {path}")
     click.echo(f"  exists: {file_exists}")
@@ -372,18 +379,15 @@ def auth_status() -> None:
 
     click.echo("Per-provider resolution (env wins if both are set):")
     for provider in KNOWN_PROVIDERS:
-        env_vars = PROVIDER_CREDENTIAL_VARS.get(provider, ())
-        primary_env_var = env_vars[0] if env_vars else "?"
-        env_set = bool(os.environ.get(primary_env_var))
-        file_entry = providers_in_file.get(provider) or {}
-        file_set = bool(isinstance(file_entry, dict) and file_entry.get("api_key"))
+        resolution = resolve_credential_detailed(provider)
+        primary_env_var = resolution.env_var or "?"
 
-        if env_set:
-            verdict = f"USING env={primary_env_var}"
-            if file_set:
-                verdict += " (file entry present, overridden)"
-        elif file_set:
+        if resolution.source == "env":
+            verdict = f"USING env={resolution.env_var}"
+        elif resolution.source == "file":
             verdict = "USING file entry"
+        elif resolution.source == "default":
+            verdict = f"USING built-in default ({resolution.fields.get('host', '')})"
         else:
             verdict = f"NOT SET (export {primary_env_var} or run `auth set {provider} ...`)"
         click.echo(f"  {provider:<14}  {verdict}")
