@@ -39,6 +39,7 @@ import click
 from amplifier_agent_cli.provider_sources import (
     PROVIDER_CATALOG,
     PROVIDER_CREDENTIAL_VARS,
+    _resolve_env_credential,
 )
 from amplifier_agent_cli.tty_detect import is_stdout_tty
 
@@ -204,22 +205,26 @@ def _resolve_provider_credentials(provider_id: str) -> dict[str, str]:
         # will still try the no-arg / config-only signatures.
         return {}
 
-    primary_var = env_vars[0]
-    value = os.environ.get(primary_var, "")
-    if not value:
-        for legacy_var in env_vars[1:]:
-            value = os.environ.get(legacy_var, "")
-            if value:
-                break
+    # Resolve via the shared env->file chain (provider_sources._resolve_env_credential):
+    #   primary env var -> legacy env aliases -> ~/.amplifier-agent/credentials.json
+    # This is the SAME resolver the run/completion path uses, so keys stored with
+    # `amplifier-agent auth set` are honored during serve-startup enumeration too.
+    # Before this, serve read env vars ONLY and aborted (sys.exit(2)) even when a
+    # valid key was present in credentials.json -- disagreeing with the completion
+    # path, `auth list`, and app doctors that all read the file.
+    value = _resolve_env_credential(provider_id)
 
     if not value:
+        primary_var = env_vars[0]
         legacy_clause = ""
         if len(env_vars) > 1:
             legacy_names = ", ".join(env_vars[1:])
             legacy_clause = f" (legacy {legacy_names} also unset)"
         raise ProviderCredentialsMissingError(
-            f"{primary_var} not set{legacy_clause}; cannot fetch live model list. "
-            "Set the env var or choose a different provider.",
+            f"{primary_var} not set{legacy_clause} and no credential stored in "
+            "~/.amplifier-agent/credentials.json; cannot fetch live model list. "
+            "Run `amplifier-agent auth set <provider>`, set the env var, or choose "
+            "a different provider.",
         )
     return {"api_key": value}
 
