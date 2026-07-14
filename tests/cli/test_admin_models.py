@@ -130,6 +130,11 @@ def test_list_provider_models_calls_async_and_cleans_up(
         async def close(self) -> None:
             closed["flag"] = True
 
+    # Hermetic seams: this test asserts on async/close behaviour of a fake
+    # provider, so stub BOTH the credential resolver (no real ANTHROPIC_API_KEY
+    # needed) and the module import gate (no real provider package needed).
+    monkeypatch.setattr(models_mod, "_resolve_provider_credentials", lambda _: {"api_key": "fake-key"})
+    monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: FakeProvider)
     models = list_provider_models("anthropic", timeout_seconds=5.0)
     assert [m.id for m in models] == ["m1"]
@@ -152,6 +157,11 @@ def test_list_provider_models_propagates_exceptions(
         async def close(self) -> None:
             pass
 
+    # Hermetic seams: stub credential resolution + module import so the test
+    # reaches the fake provider (whose list_models raises) without a real key
+    # or the real provider package.
+    monkeypatch.setattr(models_mod, "_resolve_provider_credentials", lambda _: {"api_key": "fake-key"})
+    monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: FakeProvider)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         list_provider_models("anthropic", timeout_seconds=5.0)
@@ -457,6 +467,11 @@ def test_list_provider_models_passes_env_api_key_to_constructor(
             return None
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-from-env-12345")
+    # Hermetic seam: stub the module-import gate so this test never requires the
+    # real `amplifier_module_provider_anthropic` package to be pip-installed.
+    # The env-var set above exercises the real credential resolver (single source
+    # of truth for the api_key we then assert reaches the constructor).
+    monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: CapturingProvider)
     list_provider_models("anthropic", timeout_seconds=5.0)
     assert captured["api_key"] == "ak-from-env-12345", (
@@ -583,6 +598,9 @@ def test_models_list_default_passes_filtered_false_to_provider(
             return None
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-real")
+    # Hermetic seam: stub the module-import gate so we don't need the real
+    # provider package installed; load_provider_class is stubbed to our fake.
+    monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: CapturingProvider)
 
     result = runner.invoke(cli, ["models", "list", "--provider", "anthropic", "--output", "json"])
@@ -616,6 +634,9 @@ def test_models_list_latest_flag_passes_filtered_true(
             return None
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-real")
+    # Hermetic seam: stub the module-import gate so we don't need the real
+    # provider package installed; load_provider_class is stubbed to our fake.
+    monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: CapturingProvider)
 
     result = runner.invoke(cli, ["models", "list", "--provider", "anthropic", "--latest", "--output", "json"])
@@ -649,6 +670,8 @@ def test_list_provider_models_forwards_extra_config(monkeypatch: pytest.MonkeyPa
             return None
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-real")
+    # Hermetic seam: avoid importing the real provider package (absent in CI).
+    monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: CapturingProvider)
 
     list_provider_models("anthropic", timeout_seconds=5.0, extra_config={"filtered": True})
