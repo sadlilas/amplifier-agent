@@ -35,13 +35,41 @@ Per the broader baked-in-bundle architectural revisit
 relationship between this catalog and app-cli's remains a question for
 that design pass; the shrink reduces the surface area that has to be
 reconciled when that work lands.
+
+Credential-resolution convergence (Phase 1)
+============================================
+
+Prior to this pass, THREE call sites independently re-implemented the
+env→file precedence chain: this module's (now-deleted) ``_resolve_env_credential``
+(env-only... plus file), ``admin.models._resolve_provider_credentials``
+(env-ONLY, no file fallback — the divergence that caused ``models list``,
+``run``, and ``serve`` startup to disagree about which providers were
+configured), and inline env-lookups in ``admin.auth`` / ``admin.config_show``.
+
+:func:`resolve_credential_detailed` is now the single canonical resolver.
+Every other call site (``build_provider_entry``, ``admin.models.list_provider_models``,
+``admin.auth`` auth_list/auth_status, the HTTP serve lifespan's auto-enable
+path) calls it directly or through :func:`resolve_provider_credentials` /
+:func:`enumerate_resolvable_providers`.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass, field
 from typing import Any, Final, TypedDict
+
+
+class ProviderCredentialsMissingError(RuntimeError):
+    """Raised when a required, key-based provider has no resolvable credential.
+
+    Canonical home (moved here from ``amplifier_agent_cli.admin.models`` as
+    part of Phase 1 credential-resolution convergence — this module is
+    where credential resolution now lives). Re-exported from
+    ``admin.models`` for backwards compatibility with existing imports
+    (``amplifier_agent_http.app`` imports it from there).
+    """
 
 
 class _CatalogEntry(TypedDict):
@@ -109,10 +137,9 @@ PROVIDER_CATALOG: Final[dict[str, _CatalogEntry]] = {
 
 #: Map provider short-name → ``(primary_env, *legacy_envs)``.
 #:
-#: Small auxiliary mapping used by :func:`build_provider_entry` and
-#: :func:`amplifier_agent_cli.admin.models._resolve_provider_credentials`
-#: to look up the env var name(s) that carry a provider's credentials.
-#: The first entry is the preferred name (matches the provider module's
+#: Small auxiliary mapping used by :func:`resolve_credential_detailed` to
+#: look up the env var name(s) that carry a provider's credentials. The
+#: first entry is the preferred name (matches the provider module's
 #: documented variable); any remaining entries are deprecated aliases,
 #: kept for backwards compatibility, that trigger a one-time stderr
 #: deprecation notice when consulted.
@@ -133,57 +160,240 @@ PROVIDER_CREDENTIAL_VARS: Final[dict[str, tuple[str, ...]]] = {
     "ollama": ("OLLAMA_HOST",),
 }
 
+#: Ollama's own env var chain includes a second, non-legacy alias
+#: (``OLLAMA_BASE_URL``) that most Ollama-adjacent tooling recognizes.
+#: Kept separate from :data:`PROVIDER_CREDENTIAL_VARS` (rather than
+#: appended as a "legacy" entry) because it is NOT deprecated — it does
+#: not trigger :func:`_emit_legacy_env_var_notice`.
+_OLLAMA_BASE_URL_ENV: Final[str] = "OLLAMA_BASE_URL"
+_OLLAMA_DEFAULT_HOST: Final[str] = "http://localhost:11434"
 
-def _resolve_env_credential(provider_name: str) -> str:
-    """Resolve the credential for *provider_name* using the standard chain.
 
-    Resolution order (gh/aws/claude convention, "env-first"):
+@dataclass(frozen=True)
+class CredentialResolution:
+    """Full detail of one provider's credential resolution outcome.
 
-      1. Primary shell env var (``PROVIDER_CREDENTIAL_VARS[name][0]``)
-      2. Legacy env var aliases (emit one-time deprecation notice)
+    Never raises — callers that need "missing credential" to be an error
+    ask for it explicitly via :func:`resolve_provider_credentials`'s
+    ``required=True``. This dataclass is the shared vocabulary consumed by
+    ``build_provider_entry``, ``admin.models.list_provider_models``,
+    ``admin.auth`` (auth_list/auth_status), and the ``providers list``
+    admin command — so a single resolution pass is described identically
+    everywhere.
+
+    Attributes:
+        provider: The provider short-name resolved (e.g. ``"anthropic"``).
+        resolved: Whether a usable credential/config was found. For
+            ollama, ``False`` when only the built-in default host applies
+            (no explicit configuration) — the provider is *usable* but not
+            considered "configured" for auto-enable purposes.
+        source: One of ``"env"``, ``"file"``, ``"default"``, ``"none"``.
+        env_var: The specific env var name involved — the var that
+            actually supplied the value when ``source == "env"``,
+            otherwise the primary/preferred var name (useful for
+            "export <VAR>" hints). ``None`` for unknown providers.
+        fields: Unmasked credential/config fields ready to merge into a
+            provider mount config (e.g. ``{"api_key": ...}`` or
+            ``{"host": ...}``, plus ``{"endpoint": ...}`` for azure-openai
+            when resolvable). Never logged or displayed directly by
+            callers that must not leak key material.
+    """
+
+    provider: str
+    resolved: bool
+    source: str
+    env_var: str | None
+    fields: dict[str, str] = field(default_factory=dict)
+
+
+def _maybe_attach_azure_endpoint(provider_name: str, fields: dict[str, str]) -> None:
+    """Attach an ``endpoint`` field for azure-openai when one is resolvable.
+
+    Checks ``AZURE_OPENAI_ENDPOINT`` env first, then the persisted
+    credentials file's ``endpoint`` field. No-op for every other provider,
+    and no-op when neither source has a value (omitted rather than set to
+    ``""`` — matches the spec's "omit if empty" instruction).
+    """
+    if provider_name != "azure-openai":
+        return
+    endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    if not endpoint:
+        # Local import: avoid a module-load-time cycle with admin.auth,
+        # which imports KNOWN_PROVIDERS / PROVIDER_CREDENTIAL_VARS from
+        # this module.
+        from amplifier_agent_cli.admin.auth import resolve_field_from_file
+
+        endpoint = resolve_field_from_file(provider_name, "endpoint")
+    if endpoint:
+        fields["endpoint"] = endpoint
+
+
+def resolve_credential_detailed(provider_name: str) -> CredentialResolution:
+    """Resolve full credential detail for *provider_name*. Never raises.
+
+    This is the ONE canonical resolution chain for the whole CLI + HTTP
+    face. Resolution order (gh/aws/claude convention, "env-first"):
+
+      1. Primary shell env var (``PROVIDER_CREDENTIAL_VARS[name][0]``,
+         or ``OLLAMA_HOST`` for ollama).
+      2. Legacy/alias env var(s) — ``OLLAMA_BASE_URL`` for ollama, or any
+         ``PROVIDER_CREDENTIAL_VARS[name][1:]`` alias for key providers
+         (emits a one-time deprecation notice for true legacy aliases).
       3. Persisted credentials file (``~/.amplifier-agent/credentials.json``)
-         -- managed by ``amplifier-agent auth set/list/remove`` so users
-         can configure providers once and have every invocation pick the
-         keys up automatically.
-      4. ``""`` -- caller (kernel mount, ``models list`` command, etc.)
-         decides whether an empty credential is an error or a no-op.
+         — managed by ``amplifier-agent auth set/list/remove``.
+      4. Nothing resolvable: ``source="none"`` for key providers (the
+         caller decides whether that's fatal), ``source="default"`` for
+         ollama (its built-in localhost default still makes it usable,
+         just not considered "explicitly configured").
 
     The env-first order is deliberate: shells, CI runners, and ad-hoc
     overrides should ALWAYS win over the persisted file so users can
-    point at a different key for one invocation without disturbing
-    their stored configuration.
-    """
-    env_vars = PROVIDER_CREDENTIAL_VARS.get(provider_name, ())
-    if env_vars:
-        primary_var = env_vars[0]
-        value = os.environ.get(primary_var, "")
-        if value:
-            return value
-        for legacy_var in env_vars[1:]:
-            legacy_value = os.environ.get(legacy_var, "")
-            if legacy_value:
-                _emit_legacy_env_var_notice(legacy_var, primary_var)
-                return legacy_value
+    point at a different key for one invocation without disturbing their
+    stored configuration.
 
-    # Fall back to the persisted credentials file. Importing locally to
-    # avoid a tight coupling cycle at module-load time (admin.auth imports
-    # KNOWN_PROVIDERS / PROVIDER_CREDENTIAL_VARS from this module).
+    Args:
+        provider_name: A provider short-name. Unknown names (not in
+            :data:`KNOWN_PROVIDERS` / :data:`PROVIDER_CREDENTIAL_VARS`)
+            resolve to ``source="none"``, ``resolved=False``, ``fields={}``.
+
+    Returns:
+        A :class:`CredentialResolution` describing the outcome.
+    """
+    if provider_name == "ollama":
+        host = os.environ.get("OLLAMA_HOST", "")
+        if host:
+            return CredentialResolution(
+                provider=provider_name, resolved=True, source="env", env_var="OLLAMA_HOST", fields={"host": host}
+            )
+        base_url = os.environ.get(_OLLAMA_BASE_URL_ENV, "")
+        if base_url:
+            return CredentialResolution(
+                provider=provider_name,
+                resolved=True,
+                source="env",
+                env_var=_OLLAMA_BASE_URL_ENV,
+                fields={"host": base_url},
+            )
+
+        # Local import: avoid a module-load-time cycle with admin.auth.
+        from amplifier_agent_cli.admin.auth import resolve_field_from_file
+
+        file_host = resolve_field_from_file(provider_name, "host")
+        if file_host:
+            return CredentialResolution(
+                provider=provider_name, resolved=True, source="file", env_var="OLLAMA_HOST", fields={"host": file_host}
+            )
+        return CredentialResolution(
+            provider=provider_name,
+            resolved=False,
+            source="default",
+            env_var="OLLAMA_HOST",
+            fields={"host": _OLLAMA_DEFAULT_HOST},
+        )
+
+    env_vars = PROVIDER_CREDENTIAL_VARS.get(provider_name)
+    if not env_vars:
+        return CredentialResolution(provider=provider_name, resolved=False, source="none", env_var=None, fields={})
+
+    primary_var = env_vars[0]
+    value = os.environ.get(primary_var, "")
+    if value:
+        fields: dict[str, str] = {"api_key": value}
+        _maybe_attach_azure_endpoint(provider_name, fields)
+        return CredentialResolution(
+            provider=provider_name, resolved=True, source="env", env_var=primary_var, fields=fields
+        )
+
+    for legacy_var in env_vars[1:]:
+        legacy_value = os.environ.get(legacy_var, "")
+        if legacy_value:
+            _emit_legacy_env_var_notice(legacy_var, primary_var)
+            fields = {"api_key": legacy_value}
+            _maybe_attach_azure_endpoint(provider_name, fields)
+            return CredentialResolution(
+                provider=provider_name, resolved=True, source="env", env_var=legacy_var, fields=fields
+            )
+
+    # Local import: avoid a module-load-time cycle with admin.auth
+    # (admin.auth imports KNOWN_PROVIDERS / PROVIDER_CREDENTIAL_VARS from
+    # this module).
     from amplifier_agent_cli.admin.auth import resolve_credential_from_file
 
-    return resolve_credential_from_file(provider_name)
+    file_key = resolve_credential_from_file(provider_name)
+    if file_key:
+        fields = {"api_key": file_key}
+        _maybe_attach_azure_endpoint(provider_name, fields)
+        return CredentialResolution(
+            provider=provider_name, resolved=True, source="file", env_var=primary_var, fields=fields
+        )
+
+    return CredentialResolution(provider=provider_name, resolved=False, source="none", env_var=primary_var, fields={})
 
 
-def _reassert_protected_keys(config: dict[str, Any], *, api_key: str, priority: int) -> None:
+def resolve_provider_credentials(provider_name: str, *, required: bool = False) -> dict[str, str]:
+    """Resolve *provider_name*'s credential/config fields as a plain dict.
+
+    Thin wrapper over :func:`resolve_credential_detailed` returning just
+    ``.fields`` — the shape every mount-config / provider-instantiation
+    call site actually consumes (``{"api_key": ...}``, ``{"host": ...}``,
+    etc.).
+
+    Args:
+        provider_name: A provider short-name.
+        required: When ``True``, raise :class:`ProviderCredentialsMissingError`
+            if *provider_name* is a known key-based provider (anthropic,
+            openai, azure-openai) with no resolvable credential
+            (``source == "none"``). Ollama and unknown provider names
+            never raise regardless of ``required`` — ollama always has a
+            usable default host, and "unknown provider" is a different
+            failure mode the caller (e.g. ``PROVIDER_CATALOG.get``) should
+            surface itself.
+
+    Returns:
+        ``resolution.fields`` (a fresh dict; safe for callers to mutate).
+        ``{}`` for unknown provider names.
+    """
+    resolution = resolve_credential_detailed(provider_name)
+    if required and resolution.source == "none" and provider_name in PROVIDER_CREDENTIAL_VARS:
+        env_vars = PROVIDER_CREDENTIAL_VARS[provider_name]
+        primary_var = env_vars[0]
+        legacy_clause = f" (legacy {', '.join(env_vars[1:])} also unset)" if len(env_vars) > 1 else ""
+        raise ProviderCredentialsMissingError(
+            f"{primary_var} not set{legacy_clause} and no credentials.json entry for "
+            f"{provider_name!r}; cannot fetch live model list. Run "
+            f"`amplifier-agent auth set {provider_name} <key>`, export {primary_var}, "
+            "or choose a different provider."
+        )
+    return dict(resolution.fields)
+
+
+def enumerate_resolvable_providers() -> list[str]:
+    """Return the subset of :data:`KNOWN_PROVIDERS` with a resolved credential.
+
+    Used by the HTTP serve lifespan to auto-enable providers when no
+    explicit ``host_config.providers`` block is declared (Phase 1 serve
+    auto-enable). Ollama is included only when its host was explicitly
+    configured (env or file) — its built-in localhost default
+    (``source == "default"``) does NOT count as "resolvable" here, so a
+    bare install doesn't silently auto-enroll a local Ollama daemon that
+    may not even be running.
+    """
+    return [name for name in KNOWN_PROVIDERS if resolve_credential_detailed(name).resolved]
+
+
+def _reassert_protected_keys(config: dict[str, Any], *, creds: dict[str, str], priority: int) -> None:
     """Re-assert engine-owned keys after an ``extra_config`` overlay.
 
-    ``api_key`` (env-resolved per-invocation) and ``priority`` (mount slot
-    machinery) are not user-tunable via ``host_config.json``. Re-asserting
-    them after ``config.update(extra_config)`` ensures a stale config file
-    cannot silently downgrade a fresh credential or override the mount
-    priority. New engine-owned keys belong here.
+    ``creds`` (env/file-resolved per-invocation credential fields —
+    ``api_key``, ``host``, ``endpoint``, etc.) and ``priority`` (mount
+    slot machinery) are not user-tunable via ``host_config.json``.
+    Re-asserting them after ``config.update(extra_config)`` ensures a
+    stale config file cannot silently downgrade a fresh credential or
+    override the mount priority. New engine-owned keys belong here.
     """
-    config["api_key"] = api_key
     config["priority"] = priority
+    for key, value in creds.items():
+        config[key] = value
 
 
 def build_provider_entry(
@@ -194,9 +404,10 @@ def build_provider_entry(
 ) -> dict[str, Any]:
     """Build a ``mount_plan["providers"]`` entry for one provider.
 
-    Resolves the credential env var (per :data:`PROVIDER_CREDENTIAL_VARS`)
-    to its current value. The resolution is intentionally per-invocation
-    rather than at module import time so that:
+    Resolves credentials via :func:`resolve_provider_credentials` (the
+    canonical resolver — see module docstring). The resolution is
+    intentionally per-invocation rather than at module import time so
+    that:
 
     * the prepared-bundle pickle on disk never contains secrets,
     * users who export the env var after first install (or rotate keys)
@@ -204,12 +415,13 @@ def build_provider_entry(
 
     The mount entry follows the shape app-cli's ``runtime/config.py``
     writes into ``prepared.mount_plan["providers"]``: ``module``,
-    ``source``, and a ``config`` dict.  ``config`` always contains
-    ``api_key`` (resolved from the env var, possibly empty) and
-    ``priority`` (``1`` — there's only ever one provider mounted in
-    this CLI). ``default_model`` and ``effort`` appear only when the
-    caller passes an override; otherwise they're omitted entirely so
-    the provider's own ``get_info().defaults`` wins.
+    ``source``, and a ``config`` dict. ``config`` always contains the
+    resolved credential fields (``api_key`` for key providers; ``host``
+    for ollama; possibly empty when nothing resolved) and ``priority``
+    (``1`` — there's only ever one provider mounted in this CLI).
+    ``default_model`` and ``effort`` appear only when the caller passes
+    an override; otherwise they're omitted entirely so the provider's own
+    ``get_info().defaults`` wins.
 
     Args:
         provider_name: One of ``PROVIDER_CATALOG`` keys (e.g. ``"anthropic"``).
@@ -223,14 +435,14 @@ def build_provider_entry(
             ``effort`` field and falls back to its own default behaviour.
         extra_config: Optional dict of pass-through provider configuration
             sourced from ``host_config["provider"]["config"]``. Overlaid on
-            top of the base ``{api_key, priority}`` config AFTER any
+            top of the base credential/priority config AFTER any
             ``model_override`` / ``effort_override`` are applied, so the
             host config has the final word on knobs like ``temperature``,
             ``max_tokens``, ``thinking_budget_tokens``, and any future
-            provider-specific keys. Engine-asserted keys (``api_key``,
-            ``priority``) are re-asserted after the overlay so a stale
-            config file cannot downgrade a fresh credential or override
-            the mount priority.
+            provider-specific keys. Engine-asserted keys (credential
+            fields, ``priority``) are re-asserted after the overlay so a
+            stale config file cannot downgrade a fresh credential or
+            override the mount priority.
 
     Returns:
         The mount-plan entry dict, ready to be appended to
@@ -246,16 +458,16 @@ def build_provider_entry(
             f"Unknown provider {provider_name!r}. Known providers: {known}.",
         )
 
-    api_key = _resolve_env_credential(provider_name)
+    creds = resolve_provider_credentials(provider_name)
     priority = 1
-    config: dict[str, Any] = {"api_key": api_key, "priority": priority}
+    config: dict[str, Any] = {"priority": priority, **creds}
     if model_override is not None:
         config["default_model"] = model_override
     if effort_override is not None:
         config["effort"] = effort_override
     if extra_config:
         config.update(extra_config)
-        _reassert_protected_keys(config, api_key=api_key, priority=priority)
+    _reassert_protected_keys(config, creds=creds, priority=priority)
     return {"module": entry["module"], "source": entry["source"], "config": config}
 
 

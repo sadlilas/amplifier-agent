@@ -30,7 +30,7 @@ from amplifier_agent_cli.admin.models import (
     ProviderModuleNotInstalledError,
     list_provider_models,
 )
-from amplifier_agent_cli.provider_sources import PROVIDER_CATALOG
+from amplifier_agent_cli.provider_sources import PROVIDER_CATALOG, enumerate_resolvable_providers
 from amplifier_agent_http._config import load_config
 from amplifier_agent_http._session_runner import hydrate_agent_configs
 from amplifier_agent_http.routes import chat_completions, models
@@ -82,7 +82,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # NOTE: provider injection is now PER REQUEST (in ``_session_runner.run_chat_turn``).
     # We no longer call ``inject_provider`` once at lifespan -- the wire's
     # ``model`` field determines which provider serves each request via the
-    # ``served_models_registry`` we build below from ``KNOWN_PROVIDERS``.
+    # ``served_models_registry`` we build below. The registry is populated from
+    # ``host_config.providers`` when explicitly declared (--config), and
+    # otherwise auto-enabled from whichever providers have resolvable
+    # credentials (env var or ``credentials.json`` -- see
+    # ``amplifier_agent_cli.provider_sources.enumerate_resolvable_providers``).
     # See ``run_chat_turn`` for the per-request swap (under the existing
     # ``_create_session_lock``).
 
@@ -190,27 +194,48 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # wrap each call in ``to_thread`` so the lifespan event loop is not blocked.
     # served_models_registry: maps wire model id -> provider id (e.g. "anthropic")
     # so chat_completions can route the per-request inject_provider() call.
-    providers_block = (app.state.host_config or {}).get("providers")
+    providers_block: dict[str, Any] = (app.state.host_config or {}).get("providers") or {}
 
-    if not isinstance(providers_block, dict) or not providers_block:
-        logger.error(
-            "amplifier-agent serve chat-completions requires `host_config.providers` "
-            "to be a non-empty dict. Declare at least one provider explicitly. "
-            "There is no implicit registry — KNOWN_PROVIDERS is no longer iterated."
+    if not providers_block:
+        # No explicit `--config` providers block. Auto-enable from whatever
+        # credentials are resolvable (env var or credentials.json set via
+        # `amplifier-agent auth set <provider> <key>`) rather than requiring
+        # every user to hand-author a host_config just to boot the server.
+        # Explicit `--config` providers still win: this branch only runs when
+        # that block is absent or empty.
+        resolvable = enumerate_resolvable_providers()
+        if not resolvable:
+            logger.error(
+                "amplifier-agent serve chat-completions: no providers configured and no "
+                "resolvable credentials. Set one via `amplifier-agent auth set <provider> "
+                "<key>`, export the provider's env var (e.g. ANTHROPIC_API_KEY), or pass "
+                "--config with an explicit `providers:` block."
+            )
+            sys.exit(2)
+        providers_block = {name: {"module": PROVIDER_CATALOG[name]["module"]} for name in resolvable}
+        logger.info(
+            "No --config providers declared; auto-enabled from resolvable credentials: %s",
+            resolvable,
         )
-        sys.exit(2)
 
     app.state.available_models = []
     app.state.served_models_registry = {}
     errors: list[str] = []
 
     for provider_id, entry in providers_block.items():
+        # NOTE: `list_provider_models` (and the credential resolver it calls
+        # internally) key on the short provider name (e.g. "anthropic"), not
+        # the installed Python module name (e.g. "provider-anthropic"). The
+        # `module` field on the entry is for module *installation* only --
+        # passing it here as the credential-resolution key silently failed to
+        # resolve (this was the serve-startup half of the credential-
+        # resolution divergence bug).
         module_id = entry.get("module", provider_id)
         provider_config = entry.get("config", {})
         try:
             provider_models = await asyncio.to_thread(
                 list_provider_models,
-                module_id,
+                provider_id,
                 15.0,
                 provider_config,  # extra_config — passes per-provider config through
             )
@@ -224,7 +249,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             errors.append(f"provider {provider_id!r}: failed to enumerate models — {type(exc).__name__}: {exc}")
             continue
         if not provider_models:
-            errors.append(f"provider {provider_id!r}: list_models() returned 0 models")
+            # 0-models tolerance: demote from fatal to a warning and skip this
+            # provider from the served registry. Startup only fails below when
+            # NO provider (across the whole block) contributed any models --
+            # a single provider returning an empty list (azure-openai by
+            # design, an ollama daemon that happens to be down, etc.) should
+            # not take down a server that has other working providers.
+            logger.warning(
+                "Provider %r (module %r) returned 0 models; skipping from served registry.",
+                provider_id,
+                module_id,
+            )
             continue
         for m in provider_models:
             d = m.model_dump() if hasattr(m, "model_dump") else dict(m)
@@ -234,11 +269,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Loaded %d models from provider %r", len(provider_models), provider_id)
 
     if errors:
+        # Non-fatal by itself: log for diagnostics. A provider that hard-fails
+        # (missing credentials, module not installed, etc.) should not take
+        # down the whole server if at least one other declared/auto-enabled
+        # provider succeeded. Startup only fails below when the served
+        # registry ends up empty across ALL providers.
         logger.error(
-            "amplifier-agent serve failed to initialize %d of %d declared providers:\n  %s",
+            "amplifier-agent serve had errors initializing %d of %d declared providers "
+            "(continuing with any providers that succeeded):\n  %s",
             len(errors),
             len(providers_block),
             "\n  ".join(errors),
+        )
+
+    if not app.state.served_models_registry:
+        logger.error(
+            "amplifier-agent serve: no provider produced any models (all %d declared "
+            "provider(s) failed or returned empty lists). Cannot start.",
+            len(providers_block),
         )
         sys.exit(2)
 

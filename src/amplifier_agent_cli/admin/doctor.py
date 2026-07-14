@@ -293,11 +293,7 @@ def _check_routing_matrix() -> tuple[bool, str]:
         return (True, f"{_INFO} routing: not configured (no hooks list)")
 
     routing_entry = next(
-        (
-            h
-            for h in hooks
-            if isinstance(h, dict) and h.get("module") == "hooks-routing"
-        ),
+        (h for h in hooks if isinstance(h, dict) and h.get("module") == "hooks-routing"),
         None,
     )
     if routing_entry is None:

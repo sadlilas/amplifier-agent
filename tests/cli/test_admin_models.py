@@ -22,6 +22,19 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_amplifier_agent_home(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point AMPLIFIER_AGENT_HOME at an isolated tmp dir for every test in this module.
+
+    Several tests below assert "no credential resolves" with only env vars
+    cleared; without also redirecting AMPLIFIER_AGENT_HOME, a real
+    ``~/.amplifier-agent/credentials.json`` on the machine running the suite
+    (e.g. from a developer's own `auth set` usage) silently leaks in and
+    breaks that assumption.
+    """
+    monkeypatch.setenv("AMPLIFIER_AGENT_HOME", str(tmp_path))
+
+
 def test_models_list_is_registered(runner: CliRunner) -> None:
     """models list --help exits 0 and shows --provider option."""
     result = runner.invoke(cli, ["models", "list", "--help"])
@@ -120,7 +133,7 @@ def test_list_provider_models_calls_async_and_cleans_up(
     # Hermetic seams: this test asserts on async/close behaviour of a fake
     # provider, so stub BOTH the credential resolver (no real ANTHROPIC_API_KEY
     # needed) and the module import gate (no real provider package needed).
-    monkeypatch.setattr(models_mod, "_resolve_provider_credentials", lambda _: {"api_key": "fake-key"})
+    monkeypatch.setattr(models_mod, "resolve_provider_credentials", lambda *_a, **_k: {"api_key": "fake-key"})
     monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: FakeProvider)
     models = list_provider_models("anthropic", timeout_seconds=5.0)
@@ -147,7 +160,7 @@ def test_list_provider_models_propagates_exceptions(
     # Hermetic seams: stub credential resolution + module import so the test
     # reaches the fake provider (whose list_models raises) without a real key
     # or the real provider package.
-    monkeypatch.setattr(models_mod, "_resolve_provider_credentials", lambda _: {"api_key": "fake-key"})
+    monkeypatch.setattr(models_mod, "resolve_provider_credentials", lambda *_a, **_k: {"api_key": "fake-key"})
     monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: FakeProvider)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
@@ -270,113 +283,113 @@ def test_models_list_unknown_provider_exits_1(runner: CliRunner) -> None:
 def test_resolve_provider_credentials_anthropic_reads_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials reads ANTHROPIC_API_KEY from env for anthropic."""
-    from amplifier_agent_cli.admin.models import _resolve_provider_credentials
+    """resolve_provider_credentials reads ANTHROPIC_API_KEY from env for anthropic."""
+    from amplifier_agent_cli.provider_sources import resolve_provider_credentials
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ak-anthropic-real")
-    creds = _resolve_provider_credentials("anthropic")
+    creds = resolve_provider_credentials("anthropic")
     assert creds.get("api_key") == "ak-anthropic-real"
 
 
 def test_resolve_provider_credentials_openai_reads_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials reads OPENAI_API_KEY from env for openai."""
-    from amplifier_agent_cli.admin.models import _resolve_provider_credentials
+    """resolve_provider_credentials reads OPENAI_API_KEY from env for openai."""
+    from amplifier_agent_cli.provider_sources import resolve_provider_credentials
 
     monkeypatch.setenv("OPENAI_API_KEY", "ak-openai-real")
-    creds = _resolve_provider_credentials("openai")
+    creds = resolve_provider_credentials("openai")
     assert creds.get("api_key") == "ak-openai-real"
 
 
 def test_resolve_provider_credentials_azure_openai_reads_preferred_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials reads AZURE_OPENAI_API_KEY for azure-openai."""
-    from amplifier_agent_cli.admin.models import _resolve_provider_credentials
+    """resolve_provider_credentials reads AZURE_OPENAI_API_KEY for azure-openai."""
+    from amplifier_agent_cli.provider_sources import resolve_provider_credentials
 
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "ak-azure-preferred")
     monkeypatch.delenv("AZURE_OPENAI_KEY", raising=False)
-    creds = _resolve_provider_credentials("azure-openai")
+    creds = resolve_provider_credentials("azure-openai")
     assert creds.get("api_key") == "ak-azure-preferred"
 
 
 def test_resolve_provider_credentials_azure_openai_legacy_env_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials falls back to AZURE_OPENAI_KEY when preferred is unset."""
-    from amplifier_agent_cli.admin.models import _resolve_provider_credentials
+    """resolve_provider_credentials falls back to AZURE_OPENAI_KEY when preferred is unset."""
+    from amplifier_agent_cli.provider_sources import resolve_provider_credentials
 
     monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("AZURE_OPENAI_KEY", "ak-azure-legacy")
-    creds = _resolve_provider_credentials("azure-openai")
+    creds = resolve_provider_credentials("azure-openai")
     assert creds.get("api_key") == "ak-azure-legacy"
 
 
 def test_resolve_provider_credentials_ollama_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials returns localhost default for ollama when no env set."""
-    from amplifier_agent_cli.admin.models import _resolve_provider_credentials
+    """resolve_provider_credentials returns localhost default for ollama when no env set."""
+    from amplifier_agent_cli.provider_sources import resolve_provider_credentials
 
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
-    creds = _resolve_provider_credentials("ollama")
+    creds = resolve_provider_credentials("ollama")
     assert creds.get("host") == "http://localhost:11434"
 
 
 def test_resolve_provider_credentials_ollama_reads_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials reads OLLAMA_HOST when set."""
-    from amplifier_agent_cli.admin.models import _resolve_provider_credentials
+    """resolve_provider_credentials reads OLLAMA_HOST when set."""
+    from amplifier_agent_cli.provider_sources import resolve_provider_credentials
 
     monkeypatch.setenv("OLLAMA_HOST", "http://ollama.example.com:11434")
-    creds = _resolve_provider_credentials("ollama")
+    creds = resolve_provider_credentials("ollama")
     assert creds.get("host") == "http://ollama.example.com:11434"
 
 
 def test_resolve_provider_credentials_anthropic_missing_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials raises ProviderCredentialsMissingError when key absent."""
-    from amplifier_agent_cli.admin.models import (
+    """resolve_provider_credentials(required=True) raises when key absent."""
+    from amplifier_agent_cli.provider_sources import (
         ProviderCredentialsMissingError,
-        _resolve_provider_credentials,
+        resolve_provider_credentials,
     )
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(ProviderCredentialsMissingError, match="ANTHROPIC_API_KEY"):
-        _resolve_provider_credentials("anthropic")
+        resolve_provider_credentials("anthropic", required=True)
 
 
 def test_resolve_provider_credentials_openai_missing_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials raises when OPENAI_API_KEY absent."""
-    from amplifier_agent_cli.admin.models import (
+    """resolve_provider_credentials(required=True) raises when OPENAI_API_KEY absent."""
+    from amplifier_agent_cli.provider_sources import (
         ProviderCredentialsMissingError,
-        _resolve_provider_credentials,
+        resolve_provider_credentials,
     )
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(ProviderCredentialsMissingError, match="OPENAI_API_KEY"):
-        _resolve_provider_credentials("openai")
+        resolve_provider_credentials("openai", required=True)
 
 
 def test_resolve_provider_credentials_azure_openai_missing_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_resolve_provider_credentials raises when both AZURE_OPENAI_API_KEY and legacy absent."""
-    from amplifier_agent_cli.admin.models import (
+    """resolve_provider_credentials(required=True) raises when both AZURE vars absent."""
+    from amplifier_agent_cli.provider_sources import (
         ProviderCredentialsMissingError,
-        _resolve_provider_credentials,
+        resolve_provider_credentials,
     )
 
     monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("AZURE_OPENAI_KEY", raising=False)
     with pytest.raises(ProviderCredentialsMissingError, match="AZURE_OPENAI_API_KEY"):
-        _resolve_provider_credentials("azure-openai")
+        resolve_provider_credentials("azure-openai", required=True)
 
 
 def test_try_instantiate_provider_uses_credentials_api_key() -> None:
