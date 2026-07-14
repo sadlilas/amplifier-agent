@@ -133,7 +133,7 @@ def test_list_provider_models_calls_async_and_cleans_up(
     # Hermetic seams: this test asserts on async/close behaviour of a fake
     # provider, so stub BOTH the credential resolver (no real ANTHROPIC_API_KEY
     # needed) and the module import gate (no real provider package needed).
-    monkeypatch.setattr(models_mod, "_resolve_provider_credentials", lambda _: {"api_key": "fake-key"})
+    monkeypatch.setattr(models_mod, "resolve_provider_credentials", lambda *_a, **_k: {"api_key": "fake-key"})
     monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: FakeProvider)
     models = list_provider_models("anthropic", timeout_seconds=5.0)
@@ -160,7 +160,7 @@ def test_list_provider_models_propagates_exceptions(
     # Hermetic seams: stub credential resolution + module import so the test
     # reaches the fake provider (whose list_models raises) without a real key
     # or the real provider package.
-    monkeypatch.setattr(models_mod, "_resolve_provider_credentials", lambda _: {"api_key": "fake-key"})
+    monkeypatch.setattr(models_mod, "resolve_provider_credentials", lambda *_a, **_k: {"api_key": "fake-key"})
     monkeypatch.setattr(models_mod, "_load_provider_module", lambda _: None)
     monkeypatch.setattr(models_mod, "load_provider_class", lambda _: FakeProvider)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
